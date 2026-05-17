@@ -1,6 +1,22 @@
 import { FaceLandmarker, FilesetResolver } from
   'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
-import { upload } from 'https://esm.sh/@vercel/blob@0.27.3/client?bundle';
+
+// Telegram Bot API caps sendVideo at 50 MB. We leave a small margin.
+const MAX_UPLOAD_BYTES = 45 * 1024 * 1024;
+// Hard cap on recording duration. At ~4 Mbps this stays well under
+// MAX_UPLOAD_BYTES (60s × 4 Mbps = 30 MB).
+const MAX_RECORDING_MS = 60_000;
+
+// Where to POST the recorded video. Read from <meta name="liveness-api">
+// (set to your Cloudflare Worker URL). The ?api= query string overrides it,
+// which lets the iframe host point at a different endpoint per environment.
+function resolveApiUrl() {
+  const fromQuery = new URLSearchParams(location.search).get('api');
+  if (fromQuery) return fromQuery.replace(/\/$/, '');
+  const meta = document.querySelector('meta[name="liveness-api"]');
+  return (meta?.content || '').trim().replace(/\/$/, '');
+}
+const API_URL = resolveApiUrl();
 
 // ---------- Embed mode -----------------------------------------------------
 // Auto-detect: if we're inside an iframe OR ?embed=1 is set, run as a widget.
@@ -40,8 +56,6 @@ const promptEl   = $('prompt');
 const statusEl   = $('status');
 const errorEl    = $('error-message');
 const progressEl = $('upload-progress');
-const countEl    = $('redirect-countdown');
-const redirectLink = $('redirect-link');
 const dotsEl     = $('progress-dots');
 const counterEl  = $('step-counter');
 
@@ -83,6 +97,7 @@ let recordedChunks = [];
 let landmarker = null;
 let rafId = null;
 let baselineYaw = null;
+let recordingDeadline = null;
 
 // Calibration / thresholds. Tuned conservatively to avoid false positives.
 const BLINK_EAR_THRESHOLD = 0.21;   // eye aspect ratio below this = closed
@@ -151,7 +166,8 @@ async function begin() {
   show('capture');
   statusEl.textContent = 'جارٍ طلب الإذن للكاميرا…';
 
-  // 1. Camera
+  // 1. Camera — full HD-class capture; the Cloudflare Worker accepts up to
+  // 100 MB so we don't need to shrink anything.
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
@@ -163,12 +179,20 @@ async function begin() {
   cam.srcObject = stream;
   await cam.play();
 
-  // 2. Recorder — VP9 preferred, fall back through codecs the browser supports.
+  // 2. Recorder — 4 Mbps preserves clear facial detail for review.
   const mime = pickMime();
   if (!mime) throw new Error('متصفحك لا يدعم تسجيل الفيديو.');
   recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_000_000 });
   recorder.ondataavailable = (e) => { if (e.data.size) recordedChunks.push(e.data); };
-  recorder.start(250);
+  // No timeslice — iOS Safari and some Android builds drop chunks when one is set.
+  recorder.start();
+
+  // Hard stop so we never produce a clip that exceeds Telegram's 50 MB ceiling.
+  recordingDeadline = setTimeout(() => {
+    if (stepIndex < STEPS.length) {
+      fail(new Error('استغرقت العملية وقتاً طويلاً. حاول مجدداً في إضاءة أفضل.'));
+    }
+  }, MAX_RECORDING_MS);
 
   // 3. Face detector
   statusEl.textContent = 'جارٍ تحميل أداة التعرف على الوجه…';
@@ -330,6 +354,7 @@ function detectBrowsUp(res) {
 // ---------- Finish & upload -----------------------------------------------
 async function finish() {
   cancelAnimationFrame(rafId);
+  if (recordingDeadline) { clearTimeout(recordingDeadline); recordingDeadline = null; }
   promptEl.textContent = 'تم — جارٍ حفظ التسجيل…';
   // Let the buffer flush.
   await new Promise((r) => setTimeout(r, 400));
@@ -343,76 +368,65 @@ async function finish() {
   stream.getTracks().forEach((t) => t.stop());
 
   const blob = new Blob(recordedChunks, { type: recorder.mimeType });
+
+  if (blob.size > MAX_UPLOAD_BYTES) {
+    const mb = (blob.size / 1024 / 1024).toFixed(1);
+    fail(new Error(`حجم الفيديو ${mb} ميجابايت أكبر من الحد المسموح. حاول مجدداً في إضاءة أفضل.`));
+    return;
+  }
+
   show('upload');
   postToParent('uploading');
   try {
-    const result = await uploadBlob(blob, recorder.mimeType);
+    const result = await uploadToTelegram(blob, recorder.mimeType);
     show('success');
-    postToParent('success', { file: result.file, url: result.url, redirect: result.redirect });
-    if (IS_EMBED) {
-      // Parent decides what happens next. Just show the success card.
-      countEl.parentElement.textContent = 'تم بنجاح.';
-      redirectLink.style.display = 'none';
-    } else {
-      scheduleRedirect(result.redirect);
-    }
+    postToParent('success', { file: result.file });
   } catch (e) {
     fail(e);
   }
 }
 
-async function uploadBlob(blob, mime) {
-  const ext = mime.includes('mp4') ? 'mp4' : 'webm';
-  const filename = `verification-${Date.now()}.${ext}`;
-  // Strip codec specifier ("video/webm;codecs=vp9" → "video/webm") so the
-  // server-side allowed-list matches simple MIME types too.
+function uploadToTelegram(blob, mime) {
+  if (!API_URL) {
+    return Promise.reject(new Error(
+      'لم يُضبط عنوان الخادم. أضف رابط Cloudflare Worker إلى وسم <meta name="liveness-api"> في index.html.',
+    ));
+  }
   const contentType = mime.split(';')[0];
 
-  // Allow override so the iframe can target a verification server on a
-  // different origin than the host page. Example:
-  //   <iframe src="https://verify.yoursite.com/?embed=1&api=https://verify.yoursite.com/api/upload">
-  const params = new URLSearchParams(location.search);
-  const handleUploadUrl = params.get('api') || '/api/upload';
+  // Use XHR for upload progress — fetch() doesn't expose it for request bodies.
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', API_URL, true);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.setRequestHeader('X-Mime-Type', contentType);
 
-  try {
-    const result = await upload(filename, blob, {
-      access: 'public',
-      handleUploadUrl,
-      contentType,
-      onUploadProgress: (event) => {
-        if (typeof event.percentage === 'number') {
-          progressEl.value = event.percentage;
-        }
-      },
-    });
-    return { file: result.pathname, url: result.url, redirect: '' };
-  } catch (err) {
-    throw new Error(err.message || 'فشل الرفع.');
-  }
-}
-
-function scheduleRedirect(url) {
-  if (!url) {
-    fail(new Error('تم حفظ التحقق، ولكن لم يتم ضبط عنوان إعادة التوجيه على الخادم.'));
-    return;
-  }
-  redirectLink.href = url;
-  let n = 3;
-  countEl.textContent = ar(n);
-  const t = setInterval(() => {
-    n -= 1;
-    countEl.textContent = ar(n);
-    if (n <= 0) {
-      clearInterval(t);
-      location.href = url;
-    }
-  }, 1000);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) progressEl.value = (e.loaded / e.total) * 100;
+    };
+    xhr.onerror = () => reject(new Error('تعذّر الاتصال بالخادم.'));
+    xhr.ontimeout = () => reject(new Error('انتهت مهلة الإرسال.'));
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText || '{}'); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
+        resolve({ file: data.file });
+      } else {
+        reject(new Error(data.error || `فشل الإرسال (${xhr.status}).`));
+      }
+    };
+    xhr.send(blob);
+  });
 }
 
 function fail(err) {
   console.error(err);
   if (stream) stream.getTracks().forEach((t) => t.stop());
   if (rafId) cancelAnimationFrame(rafId);
+  if (recordingDeadline) { clearTimeout(recordingDeadline); recordingDeadline = null; }
+  if (recorder && recorder.state !== 'inactive') {
+    try { recorder.stop(); } catch {}
+  }
   errorEl.textContent = err.message || String(err);
   show('error');
   postToParent('error', { message: err.message || String(err) });

