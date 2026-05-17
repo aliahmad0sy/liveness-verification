@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>التحقق من الهوية</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<main id="app">
+
+  <!-- الخطوة ١: الموافقة --------------------------------------------------- -->
+  <section id="step-consent" class="card">
+    <h1>التحقق من الهوية</h1>
+    <p class="lede">
+      نحتاج إلى التأكد من وجود شخص حقيقي أمام الكاميرا قبل المتابعة.
+    </p>
+
+    <div class="disclosure">
+      <h2>ما الذي سيحدث الآن</h2>
+      <ul>
+        <li>سيتم تشغيل الكاميرا وتسجيل مقطع فيديو قصير (من ١٥ إلى ٣٠ ثانية تقريباً).</li>
+        <li>سيُطلب منك تنفيذ بعض الحركات البسيطة للوجه، واحدة تلو الأخرى. تظهر كلٌّ منها على الشاشة عندما يحين دورها.</li>
+        <li>يتم رفع الفيديو المسجَّل إلى الخادم الخاص بنا وتخزينه لأغراض التحقق من الهوية.</li>
+        <li>لا يتم تسجيل أي فيديو قبل ضغطك على زر البدء، وتُغلق الكاميرا تلقائياً عند انتهاء عملية التحقق.</li>
+        <li>يمكنك إلغاء العملية في أي وقت بإغلاق هذه الصفحة.</li>
+      </ul>
+    </div>
+
+    <label class="consent-row">
+      <input type="checkbox" id="consent-checkbox" />
+      <span>أوافق على تسجيل وجهي ورفع الفيديو إلى خادم هذه الخدمة.</span>
+    </label>
+
+    <button id="start-btn" class="primary" disabled>بدء التحقق</button>
+    <p class="fineprint">الوصول إلى الكاميرا مطلوب. لا نقوم بتسجيل الصوت.</p>
+  </section>
+
+  <!-- الخطوة ٢: الالتقاط --------------------------------------------------- -->
+  <section id="step-capture" class="card hidden">
+    <h1>اتبع التعليمات الظاهرة</h1>
+    <div class="stage">
+      <video id="cam" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div id="prompt" class="prompt">جارٍ تحميل أداة التعرف على الوجه&hellip;</div>
+    </div>
+
+    <div id="progress-dots" class="progress-dots" aria-label="تقدّم الخطوات"></div>
+    <p id="step-counter" class="step-counter">الخطوة ١</p>
+
+    <p id="status" class="status">جارٍ التهيئة&hellip;</p>
+  </section>
+
+  <!-- الخطوة ٣: الرفع ------------------------------------------------------ -->
+  <section id="step-upload" class="card hidden">
+    <h1>جارٍ الرفع&hellip;</h1>
+    <div class="spinner" aria-hidden="true"></div>
+    <p>جارٍ إرسال فيديو التحقق. يُرجى عدم إغلاق هذه الصفحة.</p>
+    <progress id="upload-progress" max="100" value="0"></progress>
+  </section>
+
+  <!-- الخطوة ٤: النجاح ----------------------------------------------------- -->
+  <section id="step-success" class="card hidden">
+    <h1>تم التحقق بنجاح</h1>
+    <p>ستتم إعادة توجيهك خلال <span id="redirect-countdown">٣</span>&hellip;</p>
+    <a id="redirect-link" href="#" class="primary">المتابعة الآن</a>
+  </section>
+
+  <!-- الخطوة ٥: الخطأ ------------------------------------------------------ -->
+  <section id="step-error" class="card hidden">
+    <h1>حدث خطأ ما</h1>
+    <p id="error-message">خطأ غير معروف.</p>
+    <button id="retry-btn" class="primary">إعادة المحاولة</button>
+  </section>
+
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

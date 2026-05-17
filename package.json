@@ -1,0 +1,16 @@
+{
+  "name": "liveness-check",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel deploy --prod"
+  },
+  "dependencies": {
+    "@vercel/blob": "^0.27.3"
+  },
+  "devDependencies": {
+    "vercel": "^39.0.0"
+  }
+}

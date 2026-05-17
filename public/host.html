@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>صفحة الموقع — مثال على التضمين</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #181b22;
+    --text: #e7e9ee;
+    --muted: #9aa1ad;
+    --accent: #4f8cff;
+    --ok: #3ddc97;
+    --border: #262a33;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 40px 20px 80px;
+  }
+  h1 { margin: 0 0 8px; }
+  .lede { color: var(--muted); margin: 0 0 28px; }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+
+  /* The verification iframe — no borders, sized by postMessage from inside. */
+  #verify {
+    width: 100%;
+    border: 0;
+    display: block;
+    transition: height .25s ease;
+  }
+
+  /* Status panel — shows what the iframe is telling us. */
+  #status-panel {
+    border-color: var(--border);
+  }
+  #status-panel h2 {
+    font-size: 13px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin: 0 0 10px;
+  }
+  #status-value {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  #status-value.ok { color: var(--ok); }
+  #status-value.err { color: #ff6b6b; }
+  #log {
+    margin-top: 12px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--muted);
+    max-height: 140px;
+    overflow: auto;
+    direction: ltr;
+    text-align: left;
+  }
+
+  /* Hidden until verification succeeds. */
+  #protected {
+    background: linear-gradient(135deg, rgba(61,220,151,.10), rgba(79,140,255,.06));
+    border-color: rgba(61,220,151,.35);
+    display: none;
+  }
+  #protected.shown { display: block; }
+  #protected h2 { color: var(--ok); margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <h1>إكمال الطلب</h1>
+  <p class="lede">للمتابعة، يُرجى إكمال التحقق من الهوية أدناه. ستبقى على هذه الصفحة طوال العملية.</p>
+
+  <div class="panel" id="status-panel">
+    <h2>الحالة</h2>
+    <div id="status-value">بانتظار التحقق…</div>
+    <div id="log"></div>
+  </div>
+
+  <iframe
+    id="verify"
+    src="/?embed=1"
+    height="600"
+    allow="camera"
+    title="التحقق من الهوية"
+  ></iframe>
+
+  <div class="panel" id="protected">
+    <h2>✓ تم التحقق</h2>
+    <p>أهلاً بك! يمكنك الآن المتابعة. هذه المنطقة كانت مخفية حتى نجاح التحقق.</p>
+    <p><a href="#" id="continue-link">تابع إلى الخطوة التالية ←</a></p>
+  </div>
+
+</main>
+
+<script>
+  // -----------------------------------------------------------------------
+  // الاستماع لرسائل iframe التحقق.
+  //
+  // في الإنتاج: استبدل '*' بالتحقق من event.origin مقابل أصل iframe الخاص بك،
+  // مثل: if (event.origin !== 'https://verify.yoursite.com') return;
+  // -----------------------------------------------------------------------
+  const iframe = document.getElementById('verify');
+  const statusValue = document.getElementById('status-value');
+  const logEl = document.getElementById('log');
+  const protectedPanel = document.getElementById('protected');
+
+  function log(msg) {
+    const t = new Date().toLocaleTimeString();
+    logEl.innerHTML = `[${t}] ${msg}<br>` + logEl.innerHTML;
+  }
+
+  window.addEventListener('message', (event) => {
+    // السماح فقط برسائل من iframe الخاص بنا.
+    if (event.source !== iframe.contentWindow) return;
+    const msg = event.data;
+    if (!msg || msg.source !== 'liveness-check') return;
+
+    log(JSON.stringify(msg));
+
+    switch (msg.type) {
+      case 'ready':
+        statusValue.textContent = 'جاهز للبدء.';
+        break;
+      case 'started':
+        statusValue.textContent = 'بدأ المستخدم التحقق…';
+        break;
+      case 'progress':
+        statusValue.textContent = `الخطوة ${msg.step} / ${msg.total}`;
+        break;
+      case 'uploading':
+        statusValue.textContent = 'جارٍ رفع الفيديو…';
+        break;
+      case 'success':
+        statusValue.textContent = '✓ تم التحقق بنجاح';
+        statusValue.classList.add('ok');
+        // هنا تقرّر صفحتك ماذا يحدث: عرض محتوى، إرسال نموذج، فتح زر…
+        protectedPanel.classList.add('shown');
+        protectedPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        break;
+      case 'error':
+        statusValue.textContent = '✗ ' + (msg.message || 'حدث خطأ');
+        statusValue.classList.add('err');
+        break;
+      case 'resize':
+        // المحتوى يخبرنا بارتفاعه — نُغيّر حجم iframe لتلائمه (دون شريط تمرير داخلي).
+        if (typeof msg.height === 'number') iframe.style.height = (msg.height + 4) + 'px';
+        break;
+    }
+  });
+</script>
+</body>
+</html>
