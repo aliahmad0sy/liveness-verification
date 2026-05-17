@@ -395,25 +395,31 @@ async function uploadToTelegram(blob, mime) {
   const contentType = mime.split(';')[0];
 
   // Apps Script Web Apps don't accept binary bodies and mishandle CORS
-  // preflight, so we base64-encode the video and POST as text/plain (a
-  // "simple" request that browsers send without an OPTIONS round-trip).
+  // preflight on cross-origin POSTs. The combination that survives the
+  // redirect to script.googleusercontent.com is multipart/form-data with a
+  // base64-encoded payload as a plain text field. (We tried text/plain JSON
+  // first; the redirected response from googleusercontent.com sometimes
+  // drops CORS headers, which Chrome surfaces as a generic network error.)
   promptEl.textContent = 'جارٍ تجهيز الفيديو…';
   const base64 = await blobToBase64(blob);
-  const body = JSON.stringify({
-    mime: contentType,
-    ua: navigator.userAgent.slice(0, 140),
-    video: base64,
-  });
+
+  const formData = new FormData();
+  formData.append('mime', contentType);
+  formData.append('ua', navigator.userAgent.slice(0, 140));
+  formData.append('video', base64);
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', API_URL, true);
-    xhr.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8');
+    // Do NOT set Content-Type — the browser sets multipart/form-data with
+    // the correct boundary. Setting it manually breaks the request.
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) progressEl.value = (e.loaded / e.total) * 100;
     };
-    xhr.onerror = () => reject(new Error('تعذّر الاتصال بالخادم.'));
+    xhr.onerror = () => reject(new Error(
+      `تعذّر الاتصال بالخادم (status=${xhr.status || 'network'}). تأكّد من نشر السكربت بصلاحية "Anyone".`,
+    ));
     xhr.ontimeout = () => reject(new Error('انتهت مهلة الإرسال.'));
     xhr.onload = () => {
       let data = {};
@@ -422,10 +428,10 @@ async function uploadToTelegram(blob, mime) {
       if (data.ok) {
         resolve({ file: data.file });
       } else {
-        reject(new Error(data.error || `فشل الإرسال (${xhr.status}).`));
+        reject(new Error(data.error || `فشل الإرسال (HTTP ${xhr.status}).`));
       }
     };
-    xhr.send(body);
+    xhr.send(formData);
   });
 }
 
