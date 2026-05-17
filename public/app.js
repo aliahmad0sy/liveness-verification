@@ -394,12 +394,16 @@ async function uploadToTelegram(blob, mime) {
   }
   const contentType = mime.split(';')[0];
 
-  // Apps Script Web Apps don't accept binary bodies and mishandle CORS
-  // preflight on cross-origin POSTs. The combination that survives the
-  // redirect to script.googleusercontent.com is multipart/form-data with a
-  // base64-encoded payload as a plain text field. (We tried text/plain JSON
-  // first; the redirected response from googleusercontent.com sometimes
-  // drops CORS headers, which Chrome surfaces as a generic network error.)
+  // Apps Script Web Apps don't respond to CORS preflight (OPTIONS) requests
+  // with proper headers, so any request that triggers a preflight fails.
+  // The non-obvious trigger we hit was xhr.upload.onprogress: per the Fetch
+  // spec, registering ANY upload event listener demotes the request from
+  // "simple" to "non-simple" and forces a preflight, even with the
+  // safelisted multipart/form-data Content-Type.
+  //
+  // fetch() has no upload event hooks, so it stays a simple request and
+  // GAS accepts it. The trade-off is no upload progress; we run the
+  // <progress> bar in indeterminate mode instead.
   promptEl.textContent = 'جارٍ تجهيز الفيديو…';
   const base64 = await blobToBase64(blob);
 
@@ -408,31 +412,25 @@ async function uploadToTelegram(blob, mime) {
   formData.append('ua', navigator.userAgent.slice(0, 140));
   formData.append('video', base64);
 
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', API_URL, true);
-    // Do NOT set Content-Type — the browser sets multipart/form-data with
-    // the correct boundary. Setting it manually breaks the request.
+  promptEl.textContent = 'جارٍ الإرسال…';
+  // Removing the `value` attribute switches <progress> to indeterminate
+  // (a moving stripe) instead of a stuck zero-filled bar.
+  progressEl.removeAttribute('value');
 
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) progressEl.value = (e.loaded / e.total) * 100;
-    };
-    xhr.onerror = () => reject(new Error(
-      `تعذّر الاتصال بالخادم (status=${xhr.status || 'network'}). تأكّد من نشر السكربت بصلاحية "Anyone".`,
-    ));
-    xhr.ontimeout = () => reject(new Error('انتهت مهلة الإرسال.'));
-    xhr.onload = () => {
-      let data = {};
-      try { data = JSON.parse(xhr.responseText || '{}'); } catch {}
-      // Apps Script always returns HTTP 200; the real outcome is in data.ok.
-      if (data.ok) {
-        resolve({ file: data.file });
-      } else {
-        reject(new Error(data.error || `فشل الإرسال (HTTP ${xhr.status}).`));
-      }
-    };
-    xhr.send(formData);
-  });
+  let res;
+  try {
+    res = await fetch(API_URL, { method: 'POST', body: formData });
+  } catch (err) {
+    throw new Error(
+      `تعذّر الاتصال بالخادم: ${err.message || 'فشل شبكة'}. تأكّد من نشر السكربت بصلاحية "Anyone".`,
+    );
+  }
+
+  let data = {};
+  try { data = await res.json(); } catch {}
+  // Apps Script always returns HTTP 200; the real outcome is in data.ok.
+  if (data.ok) return { file: data.file };
+  throw new Error(data.error || `فشل الإرسال (HTTP ${res.status}).`);
 }
 
 function blobToBase64(blob) {
