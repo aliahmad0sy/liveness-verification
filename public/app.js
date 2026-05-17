@@ -1,12 +1,22 @@
 import { FaceLandmarker, FilesetResolver } from
   'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
 
-// Vercel serverless functions hard-cap request bodies at 4.5 MB. We give
-// ourselves a small safety margin and refuse uploads above this.
-const MAX_UPLOAD_BYTES = 4.3 * 1024 * 1024;
-// Hard cap on recording duration. At ~700 kbps this leaves us well under
-// MAX_UPLOAD_BYTES even if the user takes the full time.
-const MAX_RECORDING_MS = 30_000;
+// Telegram Bot API caps sendVideo at 50 MB. We leave a small margin.
+const MAX_UPLOAD_BYTES = 45 * 1024 * 1024;
+// Hard cap on recording duration. At ~4 Mbps this stays well under
+// MAX_UPLOAD_BYTES (60s × 4 Mbps = 30 MB).
+const MAX_RECORDING_MS = 60_000;
+
+// Where to POST the recorded video. Read from <meta name="liveness-api">
+// (set to your Cloudflare Worker URL). The ?api= query string overrides it,
+// which lets the iframe host point at a different endpoint per environment.
+function resolveApiUrl() {
+  const fromQuery = new URLSearchParams(location.search).get('api');
+  if (fromQuery) return fromQuery.replace(/\/$/, '');
+  const meta = document.querySelector('meta[name="liveness-api"]');
+  return (meta?.content || '').trim().replace(/\/$/, '');
+}
+const API_URL = resolveApiUrl();
 
 // ---------- Embed mode -----------------------------------------------------
 // Auto-detect: if we're inside an iframe OR ?embed=1 is set, run as a widget.
@@ -156,11 +166,11 @@ async function begin() {
   show('capture');
   statusEl.textContent = 'جارٍ طلب الإذن للكاميرا…';
 
-  // 1. Camera — keep resolution modest so the recorded clip stays under the
-  // 4.5 MB Vercel function body limit.
+  // 1. Camera — full HD-class capture; the Cloudflare Worker accepts up to
+  // 100 MB so we don't need to shrink anything.
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
       audio: false,
     });
   } catch (e) {
@@ -169,16 +179,15 @@ async function begin() {
   cam.srcObject = stream;
   await cam.play();
 
-  // 2. Recorder. Bitrate chosen so 30s × 700 kbps ≈ 2.6 MB, well under the
-  // 4.5 MB serverless body cap.
+  // 2. Recorder — 4 Mbps preserves clear facial detail for review.
   const mime = pickMime();
   if (!mime) throw new Error('متصفحك لا يدعم تسجيل الفيديو.');
-  recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 700_000 });
+  recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4_000_000 });
   recorder.ondataavailable = (e) => { if (e.data.size) recordedChunks.push(e.data); };
   // No timeslice — iOS Safari and some Android builds drop chunks when one is set.
   recorder.start();
 
-  // Hard stop if the user takes too long, so we never produce a file we can't upload.
+  // Hard stop so we never produce a clip that exceeds Telegram's 50 MB ceiling.
   recordingDeadline = setTimeout(() => {
     if (stepIndex < STEPS.length) {
       fail(new Error('استغرقت العملية وقتاً طويلاً. حاول مجدداً في إضاءة أفضل.'));
@@ -378,17 +387,17 @@ async function finish() {
 }
 
 function uploadToTelegram(blob, mime) {
+  if (!API_URL) {
+    return Promise.reject(new Error(
+      'لم يُضبط عنوان الخادم. أضف رابط Cloudflare Worker إلى وسم <meta name="liveness-api"> في index.html.',
+    ));
+  }
   const contentType = mime.split(';')[0];
-
-  // Allow override so the iframe can target a verification server on a
-  // different origin than the host page.
-  const params = new URLSearchParams(location.search);
-  const apiUrl = params.get('api') || '/api/telegram';
 
   // Use XHR for upload progress — fetch() doesn't expose it for request bodies.
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', apiUrl, true);
+    xhr.open('POST', API_URL, true);
     xhr.setRequestHeader('Content-Type', contentType);
     xhr.setRequestHeader('X-Mime-Type', contentType);
 
