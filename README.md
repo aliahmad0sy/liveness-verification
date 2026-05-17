@@ -1,85 +1,83 @@
-# Liveness Check — Vercel + Cloudflare Worker → Telegram
+# Liveness Check — Vercel + Google Apps Script → Telegram
 
 A single-page identity-verification flow (consent + on-device gesture detection
 + video capture). The verification UI is served from Vercel; the recorded
-video is uploaded — at full quality — to a tiny Cloudflare Worker that
-forwards it to your Telegram chat via Bot API.
+video is sent to a Google Apps Script Web App that forwards it to your
+Telegram chat via Bot API.
 
-## Why two providers?
-
-Vercel serverless functions cap request bodies at **4.5 MB**, which forces
-either a heavily compressed clip or an external storage hop. Cloudflare
-Workers accept up to **100 MB on the free plan**, so we keep the recording
-at 1280×720 @ 4 Mbps and stream it straight through.
+## Architecture
 
 ```
-Browser  ──(1)──▶  Cloudflare Worker
-   │  (raw video bytes, up to ~30 MB)        │
-   │                                          │ multipart sendVideo
-   │                                          ▼
-   │                                  Telegram Bot API
-   │                                          │
-   │                                          ▼
-   │                                  Your private chat  📥
-   ◀──(2)──  { ok: true }
+Browser  ──(1)──▶  Apps Script Web App (/exec)
+   │  (JSON body: { mime, ua, video: base64 })  │
+   │                                             │ multipart sendVideo
+   │                                             ▼
+   │                                     Telegram Bot API
+   │                                             │
+   │                                             ▼
+   │                                     Your private chat  📥
+   ◀──(2)──  { ok: true, file: "..." }
 ```
 
-Vercel just hosts the static page (`public/`) — no functions, no storage.
+Vercel just hosts the static page (`public/`). No serverless functions
+involved — Vercel's 4.5 MB body cap doesn't apply because the upload skips
+Vercel entirely.
+
+## Why Apps Script (and base64)?
+
+Apps Script Web Apps don't accept raw binary POST bodies and mishandle CORS
+preflight. We work around both:
+
+- Base64-encode the video on the client.
+- POST as `Content-Type: text/plain` — a "simple" CORS request that browsers
+  send without an OPTIONS round-trip.
+
+Trade-off: base64 inflates the payload by ~33%, so we cap recording at 25 MB
+of raw video (≈33 MB on the wire).
 
 ## Setup
 
 ### 1. Create a Telegram bot
 
-1. Open Telegram, message `@BotFather`, send `/newbot`, follow the prompts.
+1. Telegram → message `@BotFather` → `/newbot` → follow the prompts.
 2. Copy the bot token (e.g. `123456789:AAH...`).
-3. Start a chat with your new bot (search its username, press Start).
-4. Get your numeric chat id — easiest way: message `@userinfobot` and copy the
-   `Id` it replies with. (For a private channel, forward a message from the
-   channel to `@RawDataBot` and look for `forward_from_chat.id`.)
+3. Search your bot's username and press **Start** so it can DM you.
+4. Get your numeric chat id: message `@userinfobot`, copy the `Id` it replies
+   with. (For a private channel: forward a message from the channel to
+   `@RawDataBot` and look for `forward_from_chat.id`.)
 
-### 2. Deploy the Cloudflare Worker
+### 2. Deploy the Apps Script Web App
 
-```sh
-cd worker
-npm install
-npx wrangler login                       # browser sign-in to Cloudflare
-npx wrangler secret put TELEGRAM_BOT_TOKEN
-npx wrangler secret put TELEGRAM_CHAT_ID
-npx wrangler deploy
-```
+See [`gas/README.md`](gas/README.md) for the step-by-step. In short:
 
-Copy the URL `wrangler deploy` prints — looks like
-`https://liveness-telegram-bridge.<your-subdomain>.workers.dev`.
+1. https://script.google.com → **New project** → paste the contents of
+   [`gas/Code.gs`](gas/Code.gs).
+2. **Project Settings** (gear icon) → **Script Properties**, add:
 
-### 3. Tell the page where the Worker lives
+   | Property | Value |
+   |---|---|
+   | `TELEGRAM_BOT_TOKEN` | the token from BotFather |
+   | `TELEGRAM_CHAT_ID` | your numeric chat id |
 
-In `public/index.html`, set the meta tag:
+3. **Deploy** → **New deployment** → type **Web app** → Execute as **Me**,
+   access **Anyone** → **Deploy**.
+4. Copy the **Web app URL** (ends in `/exec`).
+
+### 3. Tell the page where the script lives
+
+In `public/index.html`, replace the meta tag's `content` with the URL:
 
 ```html
-<meta name="liveness-api" content="https://liveness-telegram-bridge.<your-subdomain>.workers.dev/">
+<meta name="liveness-api" content="https://script.google.com/macros/s/.../exec" />
 ```
 
-### 4. Deploy the page to Vercel
+### 4. Push to Vercel
 
 ```sh
-git add . && git commit -m "configure worker URL"
-git push                                # triggers Vercel deploy
+git add public/index.html && git commit -m "wire up apps script url" && git push
 ```
 
-Or use the Vercel dashboard — **Add New → Project** → import the repo. No
-environment variables needed on Vercel.
-
-### 5. (Recommended) Lock the Worker to your domain
-
-After Vercel gives you a URL, edit `worker/wrangler.toml`:
-
-```toml
-[vars]
-ALLOWED_ORIGIN = "https://your-project.vercel.app"
-```
-
-Then `cd worker && npx wrangler deploy` again. The Worker will reject CORS
-preflights from any other origin.
+Vercel redeploys automatically.
 
 ## Using it from your existing site
 
@@ -100,7 +98,7 @@ preflights from any other origin.
     if (msg?.source !== 'liveness-check') return;
 
     if (msg.type === 'success') {
-      // msg.file → filename that was forwarded to Telegram
+      // msg.file → filename forwarded to Telegram
       console.log('verified', msg);
     }
     if (msg.type === 'resize') iframe.style.height = (msg.height + 4) + 'px';
@@ -108,59 +106,48 @@ preflights from any other origin.
 </script>
 ```
 
-The full message protocol is in [public/host.html](public/host.html).
+Full message protocol is in [`public/host.html`](public/host.html).
 
 ## Local development
-
-Static page (Vercel):
 
 ```sh
 npm install
 npm run dev                      # http://localhost:3000
 ```
 
-Worker (Cloudflare):
-
-```sh
-cd worker
-npm install
-npx wrangler dev                 # http://localhost:8787
-```
-
-While developing locally, point the meta tag at `http://localhost:8787` and
-the page at `http://localhost:3000` will hit your local Worker.
+There's no Apps Script emulator. Test by deploying the script and pointing
+the meta tag at the real `/exec` URL.
 
 ## Limits & trade-offs
 
 | | |
 |---|---|
-| **Capture quality** | 1280×720 @ 4 Mbps. No compression hop — Telegram receives exactly what the camera produced. |
-| **Max recording duration** | 60 s. After that the session fails with a clear message. At 4 Mbps that's ~30 MB, well under Telegram's 50 MB cap. |
-| **Max upload size** | 45 MB (client-side check). Telegram Bot API caps `sendVideo` at 50 MB. |
-| **Worker request size** | 100 MB on Cloudflare free plan, 500 MB on paid. |
-| **Failover** | If Telegram rejects `sendVideo` (rare; usually container-related), the Worker retries with `sendDocument` so the bytes still reach you. |
-| **No retention** | Bytes pass through the Worker and are not stored. Telegram is the only persistent copy. |
+| **Capture quality** | 1280×720 @ 4 Mbps. Full resolution and bitrate. |
+| **Max recording duration** | 45 s. At 4 Mbps that's ~22.5 MB raw, ~30 MB after base64. |
+| **Max upload size** | 25 MB raw video (client-side check). |
+| **Apps Script POST body** | ~50 MB (undocumented but well-tested). |
+| **Daily URL fetch quota** | 20,000 / day on free Google accounts. |
+| **Failover** | If Telegram rejects `sendVideo`, the script retries with `sendDocument` so the bytes still arrive. |
+| **No retention** | Bytes pass through Apps Script and are not stored. Telegram is the only persistent copy. |
 
 ## Security checklist before production
 
 | | |
 |---|---|
-| **HTTPS** | ✅ automatic on Vercel and Workers. Required by `getUserMedia`. |
-| **`ALLOWED_ORIGIN`** | Set in `worker/wrangler.toml` to your real origin. Empty = allow all. |
-| **Origin check in parent** | Verify `event.origin` against the iframe's URL before trusting `success` messages — see snippet above. |
-| **Tighten `postToParent` target** | In [public/app.js](public/app.js), replace `'*'` with your parent site's origin. |
-| **Bot token secrecy** | Treat `TELEGRAM_BOT_TOKEN` like a password — never commit it. The Worker stores it as a secret, not in code. |
-| **Authorize requests** | The Worker currently accepts any POST from an allowed origin. Add session/JWT validation before forwarding if the page is public. |
+| **HTTPS** | ✅ automatic on Vercel and Apps Script. Required by `getUserMedia`. |
+| **Origin check in parent** | Verify `event.origin` against the iframe URL before trusting `success` messages. |
+| **Tighten `postToParent` target** | In [`public/app.js`](public/app.js), replace `'*'` with your parent site's origin. |
+| **Bot token secrecy** | Stored as Script Property — never appears in client code or version control. |
+| **Authorize requests** | Apps Script Web Apps deployed with access **Anyone** accept any POST. Add a shared secret or signed token check inside `doPost` if the page is public. |
 
 ## File map
 
 | | |
 |---|---|
-| `public/index.html` | The verification UI (Arabic, RTL). Holds the `<meta name="liveness-api">` Worker URL. |
-| `public/app.js` | Gesture detection (MediaPipe) + capture (MediaRecorder) + upload via XHR. Embed mode auto-detected. |
+| `public/index.html` | The verification UI (Arabic, RTL). Holds the `<meta name="liveness-api">` script URL. |
+| `public/app.js` | Gesture detection (MediaPipe) + capture (MediaRecorder) + base64 upload via XHR. Embed mode auto-detected. |
 | `public/styles.css` | Dark theme. |
 | `public/host.html` | Demo of how a parent page embeds the iframe and listens for messages. |
-| `worker/src/index.js` | The Cloudflare Worker — receives the video and forwards it to Telegram. |
-| `worker/wrangler.toml` | Worker config (name, vars). |
-| `worker/README.md` | Worker-specific deployment notes. |
+| `gas/Code.gs` | Apps Script web app — receives the video and forwards it to Telegram. |
+| `gas/README.md` | Apps Script-specific deployment notes. |
 | `vercel.json` | `Permissions-Policy: camera=(self)`, clean URLs. |

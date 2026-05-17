@@ -1,15 +1,15 @@
 import { FaceLandmarker, FilesetResolver } from
   'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
 
-// Telegram Bot API caps sendVideo at 50 MB. We leave a small margin.
-const MAX_UPLOAD_BYTES = 45 * 1024 * 1024;
-// Hard cap on recording duration. At ~4 Mbps this stays well under
-// MAX_UPLOAD_BYTES (60s × 4 Mbps = 30 MB).
-const MAX_RECORDING_MS = 60_000;
+// Apps Script Web Apps accept ~50 MB POST bodies. Base64 encoding bloats
+// binary by ~33%, so we cap raw video at 25 MB ⇒ ~33 MB on the wire.
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+// Hard cap on recording duration. 45s × 4 Mbps = 22.5 MB, fits comfortably.
+const MAX_RECORDING_MS = 45_000;
 
 // Where to POST the recorded video. Read from <meta name="liveness-api">
-// (set to your Cloudflare Worker URL). The ?api= query string overrides it,
-// which lets the iframe host point at a different endpoint per environment.
+// (set to your Google Apps Script Web App URL — the /exec link). The ?api=
+// query string overrides it for per-environment routing.
 function resolveApiUrl() {
   const fromQuery = new URLSearchParams(location.search).get('api');
   if (fromQuery) return fromQuery.replace(/\/$/, '');
@@ -386,20 +386,29 @@ async function finish() {
   }
 }
 
-function uploadToTelegram(blob, mime) {
+async function uploadToTelegram(blob, mime) {
   if (!API_URL) {
-    return Promise.reject(new Error(
-      'لم يُضبط عنوان الخادم. أضف رابط Cloudflare Worker إلى وسم <meta name="liveness-api"> في index.html.',
-    ));
+    throw new Error(
+      'لم يُضبط عنوان الخادم. أضف رابط Google Apps Script إلى وسم <meta name="liveness-api"> في index.html.',
+    );
   }
   const contentType = mime.split(';')[0];
 
-  // Use XHR for upload progress — fetch() doesn't expose it for request bodies.
+  // Apps Script Web Apps don't accept binary bodies and mishandle CORS
+  // preflight, so we base64-encode the video and POST as text/plain (a
+  // "simple" request that browsers send without an OPTIONS round-trip).
+  promptEl.textContent = 'جارٍ تجهيز الفيديو…';
+  const base64 = await blobToBase64(blob);
+  const body = JSON.stringify({
+    mime: contentType,
+    ua: navigator.userAgent.slice(0, 140),
+    video: base64,
+  });
+
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', API_URL, true);
-    xhr.setRequestHeader('Content-Type', contentType);
-    xhr.setRequestHeader('X-Mime-Type', contentType);
+    xhr.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8');
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) progressEl.value = (e.loaded / e.total) * 100;
@@ -409,13 +418,28 @@ function uploadToTelegram(blob, mime) {
     xhr.onload = () => {
       let data = {};
       try { data = JSON.parse(xhr.responseText || '{}'); } catch {}
-      if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
+      // Apps Script always returns HTTP 200; the real outcome is in data.ok.
+      if (data.ok) {
         resolve({ file: data.file });
       } else {
         reject(new Error(data.error || `فشل الإرسال (${xhr.status}).`));
       }
     };
-    xhr.send(blob);
+    xhr.send(body);
+  });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('فشل قراءة الفيديو.'));
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      // strip "data:video/webm;base64," prefix to get raw base64
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.readAsDataURL(blob);
   });
 }
 
