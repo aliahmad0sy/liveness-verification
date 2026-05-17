@@ -17,10 +17,17 @@
 //
 // PROTOCOL
 //
-// The browser POSTs a JSON body with Content-Type: text/plain (a "simple"
-// request, so the browser skips the CORS preflight that Apps Script doesn't
-// handle). The body has:
-//   { "mime": "video/webm", "ua": "...", "video": "<base64 bytes>" }
+// The browser POSTs the recording as multipart/form-data with three fields:
+//   mime  — original media MIME type (e.g. "video/webm")
+//   ua    — first 140 chars of the user agent string
+//   video — the recording, base64-encoded
+//
+// multipart/form-data is the only POST shape that reliably survives the
+// 302 redirect from script.google.com to script.googleusercontent.com
+// without losing CORS headers in the browser.
+//
+// A legacy text/plain JSON body { mime, ua, video } is still accepted for
+// backwards compat.
 
 var SCRIPT_PROPS = PropertiesService.getScriptProperties();
 
@@ -36,22 +43,34 @@ function doPost(e) {
       return jsonOut({ ok: false, error: 'telegram not configured on server' });
     }
 
-    if (!e || !e.postData || !e.postData.contents) {
+    if (!e) return jsonOut({ ok: false, error: 'empty event' });
+
+    // multipart/form-data → fields land in e.parameter; this is the
+    // preferred path. Legacy text/plain JSON bodies land in
+    // e.postData.contents and are parsed as a fallback.
+    var b64, mime, ua;
+    if (e.parameter && e.parameter.video) {
+      b64 = e.parameter.video;
+      mime = e.parameter.mime || 'video/webm';
+      ua = e.parameter.ua || 'unknown';
+    } else if (e.postData && e.postData.contents) {
+      var parsed;
+      try {
+        parsed = JSON.parse(e.postData.contents);
+      } catch (parseErr) {
+        return jsonOut({ ok: false, error: 'invalid body (expected form-data or json)' });
+      }
+      b64 = parsed.video;
+      mime = parsed.mime || 'video/webm';
+      ua = parsed.ua || 'unknown';
+    } else {
       return jsonOut({ ok: false, error: 'empty body' });
     }
 
-    var data;
-    try {
-      data = JSON.parse(e.postData.contents);
-    } catch (parseErr) {
-      return jsonOut({ ok: false, error: 'invalid json body' });
-    }
-
-    var b64 = data.video;
     if (!b64) return jsonOut({ ok: false, error: 'missing video field' });
 
-    var mime = String(data.mime || 'video/webm').split(';')[0].trim();
-    var ua = String(data.ua || 'unknown').slice(0, 140);
+    mime = String(mime).split(';')[0].trim();
+    ua = String(ua).slice(0, 140);
 
     var bytes = Utilities.base64Decode(b64);
     if (bytes.length === 0) {
