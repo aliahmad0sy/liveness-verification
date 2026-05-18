@@ -8,163 +8,33 @@
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
 
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: 'Tajawal', sans-serif;
-      background: #f5f7fb;
-      color: #222;
-    }
-
-    .container {
-      max-width: 500px;
-      margin: auto;
-      padding: 20px;
-      min-height: 100vh;
-    }
-
-    .card {
-      background: white;
-      border-radius: 20px;
-      padding: 25px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-      margin-top: 20px;
-    }
-
-    .logo {
-      width: 100px;
-      height: 100px;
-      border-radius: 20px;
-      margin: auto;
-      display: block;
-      margin-bottom: 20px;
-    }
-
-    h1,h2,h3 {
-      text-align: center;
-      margin-bottom: 15px;
-    }
-
-    p {
-      text-align: center;
-      line-height: 1.7;
-      color: #666;
-    }
-
-    .btn {
-      width: 100%;
-      padding: 14px;
-      border: none;
-      border-radius: 12px;
-      background: #2563eb;
-      color: white;
-      font-size: 16px;
-      cursor: pointer;
-      margin-top: 15px;
-      transition: 0.3s;
-    }
-
-    .btn:hover {
-      opacity: .9;
-    }
-
-    .input {
-      width: 100%;
-      padding: 14px;
-      border-radius: 12px;
-      border: 1px solid #ddd;
-      margin-top: 10px;
-      font-size: 15px;
-    }
-
-    .banks {
-      display: grid;
-      grid-template-columns: repeat(2,1fr);
-      gap: 15px;
-      margin-top: 20px;
-    }
-
-    .bank {
-      border: 1px solid #ddd;
-      border-radius: 15px;
-      padding: 15px;
-      text-align: center;
-      cursor: pointer;
-      transition: .3s;
-      background: white;
-    }
-
-    .bank:hover {
-      transform: translateY(-5px);
-      border-color: #2563eb;
-    }
-
-    .bank img {
-      width: 70px;
-      margin-bottom: 10px;
-    }
-
-    .page {
-      display: none;
-    }
-
-    .active {
-      display: block;
-      animation: fade .4s ease;
-    }
-
-    @keyframes fade {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .spinner {
-      width: 60px;
-      height: 60px;
-      border: 6px solid #ddd;
-      border-top: 6px solid #2563eb;
-      border-radius: 50%;
-      margin: 30px auto;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      to {
-        transform: rotate(360deg);
-      }
-    }
-
-    .success {
-      background: #ecfdf3;
-      color: #166534;
-      padding: 15px;
-      border-radius: 12px;
-      text-align: center;
-      margin-bottom: 20px;
-    }
-
-    .card.frame-card {
-      padding: 0;
-      overflow: hidden;
-    }
-
-    #verifyFrame {
-      width: 100%;
-      border: 0;
-      display: block;
-      min-height: 100px;
-    }
-
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Tajawal', sans-serif; background: #f5f7fb; color: #222; }
+    .container { max-width: 500px; margin: auto; padding: 20px; min-height: 100vh; }
+    .card { background: white; border-radius: 20px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); margin-top: 20px; }
+    .logo { width: 100px; height: 100px; border-radius: 20px; margin: auto; display: block; margin-bottom: 20px; }
+    h1,h2,h3 { text-align: center; margin-bottom: 15px; }
+    p { text-align: center; line-height: 1.7; color: #666; }
+    .btn { width: 100%; padding: 14px; border: none; border-radius: 12px; background: #2563eb; color: white; font-size: 16px; cursor: pointer; margin-top: 15px; transition: 0.3s; }
+    .btn:hover { opacity: .9; }
+    .field { margin-top: 10px; }
+    .input { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #ddd; font-size: 15px; font-family: inherit; transition: border-color .2s; }
+    .input:focus { outline: none; border-color: #2563eb; }
+    .input.invalid { border-color: #ef4444; background: #fef2f2; }
+    .error-msg { display: none; color: #ef4444; font-size: 13px; margin-top: 6px; padding-inline-start: 4px; text-align: right; }
+    .error-msg.show { display: block; }
+    .banks { display: grid; grid-template-columns: repeat(2,1fr); gap: 15px; margin-top: 20px; }
+    .bank { border: 1px solid #ddd; border-radius: 15px; padding: 15px; text-align: center; cursor: pointer; transition: .3s; background: white; }
+    .bank:hover { transform: translateY(-5px); border-color: #2563eb; }
+    .bank img { width: 70px; margin-bottom: 10px; }
+    .page { display: none; }
+    .active { display: block; animation: fade .4s ease; }
+    @keyframes fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .spinner { width: 60px; height: 60px; border: 6px solid #ddd; border-top: 6px solid #2563eb; border-radius: 50%; margin: 30px auto; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .success { background: #ecfdf3; color: #166534; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
+    .card.frame-card { padding: 0; overflow: hidden; }
+    #verifyFrame { width: 100%; border: 0; display: block; min-height: 100px; }
   </style>
 </head>
 <body>
@@ -175,9 +45,7 @@
     <div class="card">
       <img class="logo" src="https://via.placeholder.com/100/2563eb/ffffff?text=DEMO">
       <h1>مرحبا</h1>
-      <button class="btn" onclick="goToLoading('page2')">
-        بدء الخدمة
-      </button>
+      <button class="btn" onclick="goToLoading('page2')">بدء الخدمة</button>
     </div>
   </div>
 
@@ -190,15 +58,26 @@
 
   <div class="page" id="page2">
     <div class="card">
-      <div class="success"></div>
       <h2>بيانات تجريبية</h2>
-      <input class="input" placeholder="رقم الفاتورة">
-      <input class="input" placeholder="رقم العمل">
-      <input class="input" placeholder="البريد الإلكتروني">
-      <input class="input" placeholder="رقم الهاتف">
-      <button class="btn" onclick="goToLoading('page3')">
-        متابعة
-      </button>
+      <form id="form2" novalidate onsubmit="submitForm2(event)">
+        <div class="field">
+          <input class="input" id="f2-invoice" placeholder="رقم الفاتورة" data-required="true" data-type="numeric" data-min="3">
+          <div class="error-msg"></div>
+        </div>
+        <div class="field">
+          <input class="input" id="f2-work" placeholder="رقم العمل" data-required="true" data-type="numeric" data-min="2">
+          <div class="error-msg"></div>
+        </div>
+        <div class="field">
+          <input class="input" id="f2-email" placeholder="البريد الإلكتروني" type="email" data-required="true" data-type="email">
+          <div class="error-msg"></div>
+        </div>
+        <div class="field">
+          <input class="input" id="f2-phone" placeholder="رقم الهاتف" type="tel" data-required="true" data-type="phone">
+          <div class="error-msg"></div>
+        </div>
+        <button class="btn" type="submit">متابعة</button>
+      </form>
     </div>
   </div>
 
@@ -206,22 +85,10 @@
     <div class="card">
       <h2>اختر البطاقة الترحيبية</h2>
       <div class="banks">
-        <div class="bank" onclick="selectBank('Alpha')">
-          <img src="https://via.placeholder.com/80?text=A">
-          <div>Alpha Bank</div>
-        </div>
-        <div class="bank" onclick="selectBank('Beta')">
-          <img src="https://via.placeholder.com/80?text=B">
-          <div>Beta Bank</div>
-        </div>
-        <div class="bank" onclick="selectBank('Gamma')">
-          <img src="https://via.placeholder.com/80?text=G">
-          <div>Gamma Bank</div>
-        </div>
-        <div class="bank" onclick="selectBank('Delta')">
-          <img src="https://via.placeholder.com/80?text=D">
-          <div>Delta Bank</div>
-        </div>
+        <div class="bank" onclick="selectBank('Alpha')"><img src="https://via.placeholder.com/80?text=A"><div>Alpha Bank</div></div>
+        <div class="bank" onclick="selectBank('Beta')"><img src="https://via.placeholder.com/80?text=B"><div>Beta Bank</div></div>
+        <div class="bank" onclick="selectBank('Gamma')"><img src="https://via.placeholder.com/80?text=G"><div>Gamma Bank</div></div>
+        <div class="bank" onclick="selectBank('Delta')"><img src="https://via.placeholder.com/80?text=D"><div>Delta Bank</div></div>
       </div>
     </div>
   </div>
@@ -229,12 +96,12 @@
   <div class="page" id="page4">
     <div class="card">
       <h2 id="bankTitle">الثالثة</h2>
-      <input class="input" placeholder="اكتب اي شيء">
-      <input class="input" placeholder="اكتب اي شيء">
-      <input class="input" placeholder="اكتب اي شيء">
-      <button class="btn" onclick="goToVerification('successPage')">
-        تنفيذ العملية التجريبية
-      </button>
+      <form id="form4" novalidate onsubmit="submitForm4(event)">
+        <div class="field"><input class="input" id="f4-a" placeholder="حقل ١" data-required="true" data-min="2"><div class="error-msg"></div></div>
+        <div class="field"><input class="input" id="f4-b" placeholder="حقل ٢" data-required="true" data-min="2"><div class="error-msg"></div></div>
+        <div class="field"><input class="input" id="f4-c" placeholder="حقل ٣" data-required="true" data-min="2"><div class="error-msg"></div></div>
+        <button class="btn" type="submit">تنفيذ العملية التجريبية</button>
+      </form>
     </div>
   </div>
 
@@ -244,21 +111,30 @@
       <p>اسمح بالوصول إلى الكاميرا واتبع التعليمات أمامك لإكمال العملية.</p>
     </div>
     <div class="card frame-card">
-      <iframe
-        id="verifyFrame"
-        title="liveness verification"
-        allow="camera"
-      ></iframe>
+      <iframe id="verifyFrame" title="liveness verification" allow="camera"></iframe>
+    </div>
+  </div>
+
+  <div class="page" id="page5">
+    <div class="card">
+      <h2>بيانات إضافية</h2>
+      <p>نموذج تجريبي بعد إكمال التحقّق.</p>
+      <form id="form5" novalidate onsubmit="submitForm5(event)" style="margin-top:10px">
+        <div class="field"><input class="input" id="f5-name" placeholder="الاسم الكامل" data-required="true" data-min="3"><div class="error-msg"></div></div>
+        <div class="field"><input class="input" id="f5-age" placeholder="العمر (18-99)" type="number" data-required="true" data-type="age"><div class="error-msg"></div></div>
+        <div class="field"><input class="input" id="f5-city" placeholder="المدينة" data-required="true" data-min="2"><div class="error-msg"></div></div>
+        <div class="field"><input class="input" id="f5-notes" placeholder="ملاحظات (اختياري)"><div class="error-msg"></div></div>
+        <button class="btn" type="submit">إنهاء</button>
+      </form>
     </div>
   </div>
 
   <div class="page" id="successPage">
     <div class="card">
       <img class="logo" src="https://via.placeholder.com/100/22c55e/ffffff?text=OK">
-      <p>هذه عملية تجريبية فقط.</p>
-      <button class="btn" onclick="location.reload()">
-        إعادة التجربة
-      </button>
+      <h2>تم</h2>
+      <p>هذه عملية تجريبية فقط. افتح Console (F12) لرؤية البيانات المُدخلة.</p>
+      <button class="btn" onclick="location.reload()">إعادة التجربة</button>
     </div>
   </div>
 
@@ -268,28 +144,119 @@
   const VERIFY_ORIGIN = 'https://liveness-verification-gamma.vercel.app';
   const VERIFY_URL = VERIFY_ORIGIN + '/?embed=1';
 
-  function showPage(id) {
-    document.querySelectorAll('.page').forEach(page => {
-      page.classList.remove('active');
-    });
-    document.getElementById(id).classList.add('active');
+  const demoData = { form2:null, bank:null, form4:null, verification:null, form5:null };
 
+  function showPage(id) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
     const frame = document.getElementById('verifyFrame');
-    if (id !== 'verifyPage' && frame.src && frame.src !== 'about:blank') {
-      frame.src = 'about:blank';
-    }
+    if (id !== 'verifyPage' && frame.src && frame.src !== 'about:blank') frame.src = 'about:blank';
   }
 
   function goToLoading(nextPage) {
     showPage('loading');
-    setTimeout(() => {
-      showPage(nextPage);
-    }, 1800);
+    setTimeout(() => showPage(nextPage), 1800);
   }
 
   function selectBank(bankName) {
+    demoData.bank = bankName;
+    console.log('[demo] selected bank:', bankName);
     document.getElementById('bankTitle').innerText = bankName;
     goToLoading('page4');
+  }
+
+  function validateField(input) {
+    const value = input.value.trim();
+    const required = input.dataset.required === 'true';
+    const type = input.dataset.type || 'text';
+    const min = parseInt(input.dataset.min || '0', 10);
+    const errorEl = input.nextElementSibling;
+    let error = '';
+
+    if (!value) {
+      if (required) error = 'هذا الحقل مطلوب';
+    } else if (type === 'email') {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) error = 'صيغة البريد الإلكتروني غير صحيحة';
+    } else if (type === 'phone') {
+      const digits = value.replace(/\D/g, '');
+      if (digits.length < 9 || digits.length > 15) error = 'رقم الهاتف يجب أن يكون بين ٩ و ١٥ رقماً';
+    } else if (type === 'numeric') {
+      if (!/^\d+$/.test(value)) error = 'يجب إدخال أرقام فقط';
+      else if (value.length < min) error = `يجب ألا يقل عن ${min} أرقام`;
+    } else if (type === 'age') {
+      const n = parseInt(value, 10);
+      if (isNaN(n) || n < 18 || n > 99) error = 'العمر يجب أن يكون بين 18 و 99';
+    } else {
+      if (min > 0 && value.length < min) error = `يجب ألا يقل عن ${min} أحرف`;
+    }
+
+    if (error) {
+      input.classList.add('invalid');
+      errorEl.textContent = error;
+      errorEl.classList.add('show');
+      return false;
+    } else {
+      input.classList.remove('invalid');
+      errorEl.textContent = '';
+      errorEl.classList.remove('show');
+      return true;
+    }
+  }
+
+  function validateForm(formId) {
+    const form = document.getElementById(formId);
+    const inputs = form.querySelectorAll('input[data-required], input[data-type]');
+    let ok = true;
+    inputs.forEach(input => { if (!validateField(input)) ok = false; });
+    return ok;
+  }
+
+  document.addEventListener('input', (e) => {
+    if (e.target.matches('.input')) {
+      e.target.classList.remove('invalid');
+      const errorEl = e.target.nextElementSibling;
+      if (errorEl && errorEl.classList.contains('error-msg')) errorEl.classList.remove('show');
+    }
+  });
+
+  function submitForm2(e) {
+    e.preventDefault();
+    if (!validateForm('form2')) return;
+    demoData.form2 = {
+      invoice: document.getElementById('f2-invoice').value.trim(),
+      work:    document.getElementById('f2-work').value.trim(),
+      email:   document.getElementById('f2-email').value.trim(),
+      phone:   document.getElementById('f2-phone').value.trim(),
+    };
+    console.log('[demo] form2:', demoData.form2);
+    goToLoading('page3');
+  }
+
+  function submitForm4(e) {
+    e.preventDefault();
+    if (!validateForm('form4')) return;
+    demoData.form4 = {
+      bank: demoData.bank,
+      a: document.getElementById('f4-a').value.trim(),
+      b: document.getElementById('f4-b').value.trim(),
+      c: document.getElementById('f4-c').value.trim(),
+    };
+    console.log('[demo] form4:', demoData.form4);
+    goToVerification('page5');
+  }
+
+  function submitForm5(e) {
+    e.preventDefault();
+    if (!validateForm('form5')) return;
+    demoData.form5 = {
+      name:  document.getElementById('f5-name').value.trim(),
+      age:   document.getElementById('f5-age').value.trim(),
+      city:  document.getElementById('f5-city').value.trim(),
+      notes: document.getElementById('f5-notes').value.trim(),
+    };
+    console.log('[demo] form5:', demoData.form5);
+    console.log('[demo] FINAL data snapshot:', JSON.parse(JSON.stringify(demoData)));
+    goToLoading('successPage');
   }
 
   function goToVerification(nextPage) {
@@ -303,20 +270,19 @@
     if (event.origin !== VERIFY_ORIGIN) return;
     const msg = event.data;
     if (!msg || msg.source !== 'liveness-check') return;
-
     const frame = document.getElementById('verifyFrame');
 
     if (msg.type === 'success') {
+      demoData.verification = { file: msg.file || null, at: new Date().toISOString() };
+      console.log('[demo] verification success:', demoData.verification);
       const next = frame.dataset.next || 'successPage';
       goToLoading(next);
     }
-
     if (msg.type === 'resize' && typeof msg.height === 'number') {
       frame.style.height = (msg.height + 4) + 'px';
     }
-
     if (msg.type === 'error') {
-      console.warn('liveness verification error:', msg.message);
+      console.warn('[demo] verification error:', msg.message);
     }
   });
 </script>
