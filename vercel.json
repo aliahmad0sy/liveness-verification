@@ -7,7 +7,7 @@
       "headers": [
         {
           "key": "Permissions-Policy",
-          "value": "camera=(self)"
+          "value": "camera=*"
         },
         {
           "key": "Referrer-Policy",
