@@ -1,15 +1,15 @@
 import { FaceLandmarker, FilesetResolver } from
   'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
 
-// Apps Script Web Apps accept ~50 MB POST bodies. Base64 encoding bloats
-// binary by ~33%, so we cap raw video at 25 MB ⇒ ~33 MB on the wire.
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-// Hard cap on recording duration. 45s × 4 Mbps = 22.5 MB, fits comfortably.
-const MAX_RECORDING_MS = 45_000;
+// Telegram Bot API caps sendVideo at 50 MB. We leave a small margin.
+const MAX_UPLOAD_BYTES = 45 * 1024 * 1024;
+// Hard cap on recording duration. At ~4 Mbps this stays well under
+// MAX_UPLOAD_BYTES (60s × 4 Mbps = 30 MB).
+const MAX_RECORDING_MS = 60_000;
 
 // Where to POST the recorded video. Read from <meta name="liveness-api">
-// (set to your Google Apps Script Web App URL — the /exec link). The ?api=
-// query string overrides it for per-environment routing.
+// (set to your Cloudflare Worker URL). The ?api= query string overrides it,
+// which lets the iframe host point at a different endpoint per environment.
 function resolveApiUrl() {
   const fromQuery = new URLSearchParams(location.search).get('api');
   if (fromQuery) return fromQuery.replace(/\/$/, '');
@@ -386,64 +386,39 @@ async function finish() {
   }
 }
 
-async function uploadToTelegram(blob, mime) {
+function uploadToTelegram(blob, mime) {
   if (!API_URL) {
-    throw new Error(
-      'لم يُضبط عنوان الخادم. أضف رابط Google Apps Script إلى وسم <meta name="liveness-api"> في index.html.',
-    );
+    return Promise.reject(new Error(
+      'لم يُضبط عنوان الخادم. أضف رابط Cloudflare Worker إلى وسم <meta name="liveness-api"> في index.html.',
+    ));
   }
   const contentType = mime.split(';')[0];
 
-  // Apps Script Web Apps don't respond to CORS preflight (OPTIONS) requests
-  // with proper headers, so any request that triggers a preflight fails.
-  // The non-obvious trigger we hit was xhr.upload.onprogress: per the Fetch
-  // spec, registering ANY upload event listener demotes the request from
-  // "simple" to "non-simple" and forces a preflight, even with the
-  // safelisted multipart/form-data Content-Type.
-  //
-  // fetch() has no upload event hooks, so it stays a simple request and
-  // GAS accepts it. The trade-off is no upload progress; we run the
-  // <progress> bar in indeterminate mode instead.
-  promptEl.textContent = 'جارٍ تجهيز الفيديو…';
-  const base64 = await blobToBase64(blob);
-
-  const formData = new FormData();
-  formData.append('mime', contentType);
-  formData.append('ua', navigator.userAgent.slice(0, 140));
-  formData.append('video', base64);
-
-  promptEl.textContent = 'جارٍ الإرسال…';
-  // Removing the `value` attribute switches <progress> to indeterminate
-  // (a moving stripe) instead of a stuck zero-filled bar.
-  progressEl.removeAttribute('value');
-
-  let res;
-  try {
-    res = await fetch(API_URL, { method: 'POST', body: formData });
-  } catch (err) {
-    throw new Error(
-      `تعذّر الاتصال بالخادم: ${err.message || 'فشل شبكة'}. تأكّد من نشر السكربت بصلاحية "Anyone".`,
-    );
-  }
-
-  let data = {};
-  try { data = await res.json(); } catch {}
-  // Apps Script always returns HTTP 200; the real outcome is in data.ok.
-  if (data.ok) return { file: data.file };
-  throw new Error(data.error || `فشل الإرسال (HTTP ${res.status}).`);
-}
-
-function blobToBase64(blob) {
+  // Use XHR for upload progress — fetch() doesn't expose it for request bodies.
+  // The Worker responds to OPTIONS preflight with proper CORS headers, so
+  // registering xhr.upload.onprogress (which demotes the request from "simple"
+  // to "non-simple" per CORS spec) is fine here.
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('فشل قراءة الفيديو.'));
-    reader.onload = () => {
-      const result = String(reader.result || '');
-      // strip "data:video/webm;base64," prefix to get raw base64
-      const comma = result.indexOf(',');
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', API_URL, true);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.setRequestHeader('X-Mime-Type', contentType);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) progressEl.value = (e.loaded / e.total) * 100;
     };
-    reader.readAsDataURL(blob);
+    xhr.onerror = () => reject(new Error('تعذّر الاتصال بالخادم.'));
+    xhr.ontimeout = () => reject(new Error('انتهت مهلة الإرسال.'));
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText || '{}'); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300 && data.ok) {
+        resolve({ file: data.file });
+      } else {
+        reject(new Error(data.error || `فشل الإرسال (${xhr.status}).`));
+      }
+    };
+    xhr.send(blob);
   });
 }
 
