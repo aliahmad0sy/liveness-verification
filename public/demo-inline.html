@@ -489,22 +489,77 @@
     ctx.drawImage(video, 0, 0);
 
     let text = null;
+    let bbox = null;
+
     if (qrDetector) {
       try {
         const codes = await qrDetector.detect(canvas);
-        if (codes.length) text = codes[0].rawValue;
+        if (codes.length) {
+          text = codes[0].rawValue;
+          const b = codes[0].boundingBox;
+          bbox = { x: b.x, y: b.y, w: b.width, h: b.height };
+        }
       } catch {}
     } else if (window.jsQR) {
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = jsQR(img.data, canvas.width, canvas.height);
-      if (code) text = code.data;
+      if (code) {
+        text = code.data;
+        const corners = [
+          code.location.topLeftCorner,
+          code.location.topRightCorner,
+          code.location.bottomLeftCorner,
+          code.location.bottomRightCorner,
+        ];
+        const xs = corners.map(c => c.x);
+        const ys = corners.map(c => c.y);
+        const minX = Math.min.apply(null, xs);
+        const minY = Math.min.apply(null, ys);
+        bbox = {
+          x: minX,
+          y: minY,
+          w: Math.max.apply(null, xs) - minX,
+          h: Math.max.apply(null, ys) - minY,
+        };
+      }
     }
 
     if (text) {
-      onQrDetected(text, canvas.toDataURL('image/png'));
+      const cropped = cropQrRegion(canvas, bbox);
+      onQrDetected(text, cropped.toDataURL('image/png'));
       return;
     }
     qrRafId = requestAnimationFrame(scanQrFrame);
+  }
+
+  function cropQrRegion(sourceCanvas, bbox) {
+    const W = sourceCanvas.width;
+    const H = sourceCanvas.height;
+    if (!bbox) return sourceCanvas;
+    const pad = Math.max(bbox.w, bbox.h) * 0.12;
+    const padded = {
+      x: bbox.x - pad,
+      y: bbox.y - pad,
+      w: bbox.w + 2 * pad,
+      h: bbox.h + 2 * pad,
+    };
+    const size = Math.max(padded.w, padded.h);
+    const cx = padded.x + padded.w / 2;
+    const cy = padded.y + padded.h / 2;
+    let sx = Math.round(cx - size / 2);
+    let sy = Math.round(cy - size / 2);
+    let s  = Math.round(size);
+    sx = Math.max(0, Math.min(W - 1, sx));
+    sy = Math.max(0, Math.min(H - 1, sy));
+    s  = Math.min(s, W - sx, H - sy);
+
+    const out = document.createElement('canvas');
+    out.width = s;
+    out.height = s;
+    const octx = out.getContext('2d');
+    octx.imageSmoothingEnabled = false;
+    octx.drawImage(sourceCanvas, sx, sy, s, s, 0, 0, s, s);
+    return out;
   }
 
   function stopQrScanner() {
