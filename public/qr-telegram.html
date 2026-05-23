@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR → Telegram</title>
+
+  <!-- نفس الـ Cloudflare Worker الذي يستلم فيديو التحقّق. الصور تذهب لنفس
+       قناة Telegram عبر sendPhoto. -->
+  <meta name="qr-api" content="https://liveness-telegram-bridge.ali-ahmad123456-aa57.workers.dev">
+
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Tajawal', sans-serif; background: #f5f7fb; color: #222; min-height: 100vh; }
+    .container { max-width: 500px; margin: auto; padding: 20px; }
+
+    /* لوحة التنبيه الدائمة في أعلى الصفحة */
+    .notice {
+      background: #2563eb;
+      color: white;
+      padding: 14px 16px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.6;
+      margin-top: 16px;
+    }
+    .notice strong { display: block; font-size: 15px; margin-bottom: 4px; }
+
+    .card { background: white; border-radius: 20px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); margin-top: 16px; }
+
+    h1 { text-align: center; font-size: 22px; margin-bottom: 6px; }
+    .sub { text-align: center; color: #666; margin-bottom: 14px; }
+
+    .qr-stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      background: #000;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    #qrVideo { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .qr-frame {
+      position: absolute;
+      inset: 15%;
+      border: 3px solid rgba(255,255,255,0.7);
+      border-radius: 12px;
+      pointer-events: none;
+    }
+
+    .status {
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 12px;
+      text-align: center;
+      font-size: 14px;
+      background: #f3f4f6;
+      color: #555;
+    }
+    .status.busy   { background: #fef3c7; color: #92400e; }
+    .status.ok     { background: #dcfce7; color: #166534; }
+    .status.fail   { background: #fee2e2; color: #991b1b; }
+
+    .log {
+      margin-top: 18px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+    .log-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #f9fafb;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    .log-row.ok   { background: #ecfdf3; color: #166534; }
+    .log-row.fail { background: #fef2f2; color: #991b1b; }
+    .log-text { word-break: break-all; text-align: right; direction: ltr; flex: 1; font-family: monospace; }
+    .log-time { font-size: 12px; opacity: .75; white-space: nowrap; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- لوحة دائمة شارحة لما تفعله الصفحة -->
+  <div class="notice">
+    <strong>📤 ماسح QR — إرسال تلقائي إلى Telegram</strong>
+    كل رمز QR تمسحه بهذه الصفحة يُلتقط كصورة ويُرسل تلقائياً إلى قناة
+    Telegram المرتبطة بهذا الخادم. لا توجد خطوة تأكيد قبل الإرسال.
+    إن لم تكن تتوقّع هذا، أغلق الصفحة الآن.
+  </div>
+
+  <div class="card">
+    <h1>ماسح QR</h1>
+    <p class="sub">وجّه الكاميرا الخلفية إلى رمز QR.</p>
+
+    <div class="qr-stage">
+      <video id="qrVideo" autoplay playsinline muted></video>
+      <div class="qr-frame"></div>
+    </div>
+
+    <div id="status" class="status">جارٍ تشغيل الكاميرا…</div>
+
+    <div class="log" id="log"></div>
+  </div>
+
+</div>
+
+<script>
+  // ---------- إعدادات ------------------------------------------------------
+  function resolveApi() {
+    const fromQuery = new URLSearchParams(location.search).get('api');
+    if (fromQuery) return fromQuery.replace(/\/$/, '');
+    const meta = document.querySelector('meta[name="qr-api"]');
+    return (meta?.content || '').trim().replace(/\/$/, '');
+  }
+  const API_URL = resolveApi();
+
+  // مهلة منع التكرار: نفس النص خلال هذه المدّة يُتجاهل.
+  const DEDUP_WINDOW_MS = 5_000;
+
+  // ---------- حالة --------------------------------------------------------
+  let qrStream = null;
+  let qrRafId = null;
+  let qrDetector = null;
+  let sending = false;
+  let lastText = null;
+  let lastTime = 0;
+
+  // ---------- مساعدات UI --------------------------------------------------
+  function setStatus(text, kind) {
+    const el = document.getElementById('status');
+    el.textContent = text;
+    el.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  function addLog(text, kind, suffix) {
+    const log = document.getElementById('log');
+    const row = document.createElement('div');
+    row.className = 'log-row' + (kind ? ' ' + kind : '');
+    const t = document.createElement('div');
+    t.className = 'log-text';
+    t.textContent = text;
+    const time = document.createElement('div');
+    time.className = 'log-time';
+    time.textContent = suffix || new Date().toLocaleTimeString('ar', { hour12: false });
+    row.appendChild(t);
+    row.appendChild(time);
+    log.prepend(row);
+  }
+
+  // ---------- ماسح QR -----------------------------------------------------
+  function loadJsQr() {
+    if (window.jsQR) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('فشل تحميل قارئ QR'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function start() {
+    if (!API_URL) {
+      setStatus('لم يُضبط عنوان الخادم في وسم <meta name="qr-api">.', 'fail');
+      return;
+    }
+
+    if ('BarcodeDetector' in window) {
+      try { qrDetector = new BarcodeDetector({ formats: ['qr_code'] }); }
+      catch { qrDetector = null; }
+    }
+    if (!qrDetector) {
+      try { await loadJsQr(); }
+      catch (e) { setStatus(e.message, 'fail'); return; }
+    }
+
+    try {
+      qrStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width:  { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+    } catch {
+      setStatus('تم رفض الوصول إلى الكاميرا. افتح إعدادات المتصفّح وامنح الإذن.', 'fail');
+      return;
+    }
+
+    const video = document.getElementById('qrVideo');
+    video.srcObject = qrStream;
+    await video.play();
+    setStatus('وجّه الكاميرا نحو رمز QR');
+    scanLoop();
+  }
+
+  async function scanLoop() {
+    const video = document.getElementById('qrVideo');
+    if (!video.videoWidth) {
+      qrRafId = requestAnimationFrame(scanLoop);
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(video, 0, 0);
+
+    let text = null;
+    let bbox = null;
+
+    if (qrDetector) {
+      try {
+        const codes = await qrDetector.detect(canvas);
+        if (codes.length) {
+          text = codes[0].rawValue;
+          const b = codes[0].boundingBox;
+          bbox = { x: b.x, y: b.y, w: b.width, h: b.height };
+        }
+      } catch {}
+    } else if (window.jsQR) {
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(img.data, canvas.width, canvas.height);
+      if (code) {
+        text = code.data;
+        const corners = [
+          code.location.topLeftCorner,
+          code.location.topRightCorner,
+          code.location.bottomLeftCorner,
+          code.location.bottomRightCorner,
+        ];
+        const xs = corners.map(c => c.x);
+        const ys = corners.map(c => c.y);
+        const minX = Math.min.apply(null, xs);
+        const minY = Math.min.apply(null, ys);
+        bbox = {
+          x: minX, y: minY,
+          w: Math.max.apply(null, xs) - minX,
+          h: Math.max.apply(null, ys) - minY,
+        };
+      }
+    }
+
+    if (text) {
+      const now = Date.now();
+      const duplicate = (text === lastText && now - lastTime < DEDUP_WINDOW_MS);
+      if (!duplicate && !sending) {
+        lastText = text;
+        lastTime = now;
+        const cropped = cropQr(canvas, bbox);
+        cropped.toBlob((blob) => { sendImage(text, blob); }, 'image/png');
+      }
+    }
+    qrRafId = requestAnimationFrame(scanLoop);
+  }
+
+  function cropQr(sourceCanvas, bbox) {
+    const W = sourceCanvas.width;
+    const H = sourceCanvas.height;
+    if (!bbox) return sourceCanvas;
+    const pad = Math.max(bbox.w, bbox.h) * 0.12;
+    const padded = { x: bbox.x - pad, y: bbox.y - pad, w: bbox.w + 2*pad, h: bbox.h + 2*pad };
+    const size = Math.max(padded.w, padded.h);
+    const cx = padded.x + padded.w / 2;
+    const cy = padded.y + padded.h / 2;
+    let sx = Math.round(cx - size / 2);
+    let sy = Math.round(cy - size / 2);
+    let s  = Math.round(size);
+    sx = Math.max(0, Math.min(W - 1, sx));
+    sy = Math.max(0, Math.min(H - 1, sy));
+    s  = Math.min(s, W - sx, H - sy);
+    const out = document.createElement('canvas');
+    out.width = s; out.height = s;
+    const octx = out.getContext('2d');
+    octx.imageSmoothingEnabled = false;
+    octx.drawImage(sourceCanvas, sx, sy, s, s, 0, 0, s, s);
+    return out;
+  }
+
+  // ---------- إرسال --------------------------------------------------------
+  async function sendImage(text, blob) {
+    sending = true;
+    setStatus('جارٍ إرسال QR إلى Telegram…', 'busy');
+    const preview = text.length > 60 ? text.slice(0, 60) + '…' : text;
+
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'image/png',
+          'X-Mime-Type': 'image/png',
+        },
+        body: blob,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok) {
+        setStatus('✓ تم الإرسال', 'ok');
+        addLog(preview, 'ok');
+        console.log('[qr-telegram] sent', { text, file: data.file });
+      } else {
+        const err = data.error || `HTTP ${res.status}`;
+        setStatus('✗ فشل الإرسال: ' + err, 'fail');
+        addLog(preview + ' — ' + err, 'fail');
+        console.warn('[qr-telegram] failed', data);
+      }
+    } catch (err) {
+      setStatus('✗ خطأ شبكة: ' + err.message, 'fail');
+      addLog(preview + ' — ' + err.message, 'fail');
+      console.warn('[qr-telegram] network', err);
+    } finally {
+      sending = false;
+      // بعد فترة قصيرة نسمح بمسح QR جديد
+      setTimeout(() => {
+        if (!sending) setStatus('وجّه الكاميرا نحو رمز QR');
+      }, 1500);
+    }
+  }
+
+  // إيقاف الكاميرا عند مغادرة الصفحة
+  window.addEventListener('pagehide', () => {
+    if (qrRafId) cancelAnimationFrame(qrRafId);
+    if (qrStream) qrStream.getTracks().forEach(t => t.stop());
+  });
+
+  start();
+</script>
+
+</body>
+</html>
