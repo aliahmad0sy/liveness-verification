@@ -15,9 +15,10 @@
     .logo { width: 100px; height: 100px; border-radius: 20px; margin: auto; display: block; margin-bottom: 20px; }
     h1,h2,h3 { text-align: center; margin-bottom: 15px; }
     p { text-align: center; line-height: 1.7; color: #666; }
-    .btn { width: 100%; padding: 14px; border: none; border-radius: 12px; background: #2563eb; color: white; font-size: 16px; cursor: pointer; margin-top: 15px; transition: 0.3s; font-family: inherit; }
+    .btn { width: 100%; padding: 14px; border: none; border-radius: 12px; background: #2563eb; color: white; font-size: 16px; cursor: pointer; margin-top: 15px; transition: 0.3s; font-family: inherit; text-decoration: none; display: block; text-align: center; }
     .btn:hover { opacity: .9; }
     .btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .btn-secondary { background: white; color: #2563eb; border: 1px solid #2563eb; }
     .field { margin-top: 10px; }
     .input { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #ddd; font-size: 15px; font-family: inherit; transition: border-color .2s; }
     .input:focus { outline: none; border-color: #2563eb; }
@@ -34,40 +35,85 @@
     .spinner { width: 60px; height: 60px; border: 6px solid #ddd; border-top: 6px solid #2563eb; border-radius: 50%; margin: 30px auto; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* بطاقة iframe التحقّق (inline أسفل النموذج) */
     .card.frame-card { padding: 0; overflow: hidden; }
     #verifyFrame { width: 100%; border: 0; display: block; min-height: 100px; }
 
-    /* مؤشر حالة التحقّق فوق الـ iframe */
-    .verify-status {
-      background: #fef3c7;
-      color: #92400e;
-      padding: 12px;
+    .verify-status { background: #fef3c7; color: #92400e; padding: 12px; border-radius: 12px; text-align: center; font-size: 14px; margin-bottom: 0; }
+    .verify-status.done { background: #dcfce7; color: #166534; }
+
+    /* زر العودة */
+    .back-btn {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: white;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      border: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 22px;
+      color: #2563eb;
+      z-index: 100;
+      padding: 0;
+      line-height: 1;
+      font-family: inherit;
+    }
+    .back-btn.hidden { display: none; }
+
+    /* QR scanner */
+    .qr-stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      background: #000;
+      border-radius: 14px;
+      overflow: hidden;
+      margin-top: 14px;
+    }
+    #qrVideo { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .qr-frame {
+      position: absolute;
+      inset: 15%;
+      border: 3px solid rgba(255,255,255,0.7);
       border-radius: 12px;
-      text-align: center;
+      pointer-events: none;
+    }
+    .qr-text {
+      background: #f3f4f6;
+      padding: 12px 16px;
+      border-radius: 12px;
+      word-break: break-all;
+      margin: 14px 0;
+      font-family: monospace;
       font-size: 14px;
-      margin-bottom: 0;
+      text-align: right;
+      color: #222;
+      direction: ltr;
     }
-    .verify-status.done {
-      background: #dcfce7;
-      color: #166534;
-    }
+    .qr-text a { color: #2563eb; text-decoration: underline; }
+    #qrResultImage { width: 100%; border-radius: 12px; margin: 14px 0; display: block; }
   </style>
 </head>
 <body>
 
+<button class="back-btn hidden" id="backBtn" onclick="goBack()" aria-label="رجوع">←</button>
+
 <div class="container">
 
-  <!-- صفحة الترحيب -->
   <div class="page active" id="page1">
     <div class="card">
       <img class="logo" src="https://via.placeholder.com/100/2563eb/ffffff?text=DEMO">
       <h1>مرحبا</h1>
       <button class="btn" onclick="goToLoading('page2')">بدء الخدمة</button>
+      <button class="btn btn-secondary" onclick="openQrScanner()">ماسح QR (تجربة)</button>
     </div>
   </div>
 
-  <!-- صفحة التحميل -->
   <div class="page" id="loading">
     <div class="card">
       <div class="spinner"></div>
@@ -75,7 +121,6 @@
     </div>
   </div>
 
-  <!-- بيانات أساسية -->
   <div class="page" id="page2">
     <div class="card">
       <h2>بيانات تجريبية</h2>
@@ -101,7 +146,6 @@
     </div>
   </div>
 
-  <!-- اختيار البنك -->
   <div class="page" id="page3">
     <div class="card">
       <h2>اختر البطاقة الترحيبية</h2>
@@ -114,10 +158,7 @@
     </div>
   </div>
 
-  <!-- فورم البنك + التحقّق inline أسفله -->
   <div class="page" id="page4">
-
-    <!-- بطاقة النموذج -->
     <div class="card">
       <h2 id="bankTitle">الثالثة</h2>
       <form id="form4" novalidate onsubmit="submitForm4(event)">
@@ -128,19 +169,15 @@
       </form>
     </div>
 
-    <!-- بطاقة حالة التحقّق -->
     <div class="card" style="padding: 18px 20px;">
       <div class="verify-status" id="verifyStatus">جارٍ تشغيل التحقّق أدناه…</div>
     </div>
 
-    <!-- iframe التحقّق inline -->
     <div class="card frame-card">
       <iframe id="verifyFrame" title="liveness verification" allow="camera"></iframe>
     </div>
-
   </div>
 
-  <!-- فورم إضافي بعد التحقّق -->
   <div class="page" id="page5">
     <div class="card">
       <h2>بيانات إضافية</h2>
@@ -155,7 +192,29 @@
     </div>
   </div>
 
-  <!-- النجاح -->
+  <!-- صفحة ماسح QR -->
+  <div class="page" id="qrPage">
+    <div class="card">
+      <h2>ماسح QR</h2>
+      <p id="qrStatus">وجّه الكاميرا الخلفية نحو رمز QR</p>
+      <div class="qr-stage">
+        <video id="qrVideo" autoplay playsinline muted></video>
+        <div class="qr-frame"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- صفحة نتيجة المسح -->
+  <div class="page" id="qrResultPage">
+    <div class="card">
+      <h2>تم المسح ✓</h2>
+      <div class="qr-text" id="qrResultText"></div>
+      <img id="qrResultImage" alt="">
+      <a class="btn" id="qrDownload">تنزيل الصورة</a>
+      <button class="btn btn-secondary" onclick="openQrScanner()">مسح آخر</button>
+    </div>
+  </div>
+
   <div class="page" id="successPage">
     <div class="card">
       <img class="logo" src="https://via.placeholder.com/100/22c55e/ffffff?text=OK">
@@ -174,22 +233,46 @@
   const demoData = { form2:null, bank:null, form4:null, verification:null, form5:null };
   let verificationDone = false;
 
+  // ---------- زر العودة ---------------------------------------------------
+  const backMap = {
+    page2:        'page1',
+    page3:        'page2',
+    page4:        'page3',
+    page5:        'page4',
+    qrPage:       'page1',
+    qrResultPage: 'page1',
+  };
+
+  function updateBackButton(id) {
+    document.getElementById('backBtn').classList.toggle('hidden', !backMap[id]);
+  }
+
+  function goBack() {
+    const current = document.querySelector('.page.active')?.id;
+    const target = backMap[current];
+    if (!target) return;
+    if (current === 'qrPage') stopQrScanner();
+    showPage(target);
+  }
+
+  // ---------- التنقّل بين الصفحات ----------------------------------------
   function showPage(id) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById(id).classList.add('active');
+    updateBackButton(id);
 
     const frame = document.getElementById('verifyFrame');
     if (id === 'page4') {
-      // عند الدخول لـ page4: تشغيل iframe التحقّق تلقائياً وإعادة ضبط الحالة.
-      verificationDone = false;
-      document.getElementById('verifyStatus').textContent = 'جارٍ تشغيل التحقّق أدناه…';
-      document.getElementById('verifyStatus').classList.remove('done');
-      const btn = document.getElementById('submit4');
-      btn.disabled = true;
-      btn.textContent = 'أكمل التحقّق أولاً';
-      frame.src = VERIFY_URL + '&t=' + Date.now();
+      // Re-start verification iframe only if not already verified.
+      if (!verificationDone) {
+        document.getElementById('verifyStatus').textContent = 'جارٍ تشغيل التحقّق أدناه…';
+        document.getElementById('verifyStatus').classList.remove('done');
+        const btn = document.getElementById('submit4');
+        btn.disabled = true;
+        btn.textContent = 'أكمل التحقّق أولاً';
+        frame.src = VERIFY_URL + '&t=' + Date.now();
+      }
     } else if (frame.src && frame.src !== 'about:blank') {
-      // عند الخروج: إيقاف الكاميرا.
       frame.src = 'about:blank';
     }
   }
@@ -206,7 +289,7 @@
     goToLoading('page4');
   }
 
-  // ---------- Validation ---------------------------------------------------
+  // ---------- Validation --------------------------------------------------
   function validateField(input) {
     const value = input.value.trim();
     const required = input.dataset.required === 'true';
@@ -261,7 +344,7 @@
     }
   });
 
-  // ---------- Submit handlers ----------------------------------------------
+  // ---------- Submit handlers ---------------------------------------------
   function submitForm2(e) {
     e.preventDefault();
     if (!validateForm('form2')) return;
@@ -306,7 +389,7 @@
     goToLoading('successPage');
   }
 
-  // ---------- استقبال رسائل التحقّق ---------------------------------------
+  // ---------- استقبال رسائل التحقّق --------------------------------------
   window.addEventListener('message', (event) => {
     if (event.origin !== VERIFY_ORIGIN) return;
     const msg = event.data;
@@ -337,6 +420,188 @@
       status.style.color = '#991b1b';
     }
   });
+
+  // ---------- ماسح QR ----------------------------------------------------
+  let qrStream = null;
+  let qrRafId = null;
+  let qrDetector = null;
+
+  function loadJsQr() {
+    if (window.jsQR) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('فشل تحميل قارئ QR'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function openQrScanner() {
+    stopQrScanner();
+    document.getElementById('qrStatus').textContent = 'جارٍ تشغيل الكاميرا…';
+    showPage('qrPage');
+
+    if ('BarcodeDetector' in window) {
+      try { qrDetector = new BarcodeDetector({ formats: ['qr_code'] }); }
+      catch { qrDetector = null; }
+    }
+    if (!qrDetector) {
+      try { await loadJsQr(); }
+      catch (e) {
+        document.getElementById('qrStatus').textContent = e.message;
+        return;
+      }
+    }
+
+    try {
+      qrStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width:  { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+    } catch (err) {
+      document.getElementById('qrStatus').textContent =
+        'تم رفض الوصول إلى الكاميرا — افتح إعدادات المتصفّح وامنح إذن الكاميرا.';
+      return;
+    }
+
+    const video = document.getElementById('qrVideo');
+    video.srcObject = qrStream;
+    await video.play();
+    document.getElementById('qrStatus').textContent = 'وجّه الكاميرا نحو رمز QR';
+    scanQrFrame();
+  }
+
+  async function scanQrFrame() {
+    const video = document.getElementById('qrVideo');
+    if (!video.videoWidth) {
+      qrRafId = requestAnimationFrame(scanQrFrame);
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(video, 0, 0);
+
+    let text = null;
+    let bbox = null;
+
+    if (qrDetector) {
+      try {
+        const codes = await qrDetector.detect(canvas);
+        if (codes.length) {
+          text = codes[0].rawValue;
+          const b = codes[0].boundingBox;
+          bbox = { x: b.x, y: b.y, w: b.width, h: b.height };
+        }
+      } catch {}
+    } else if (window.jsQR) {
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(img.data, canvas.width, canvas.height);
+      if (code) {
+        text = code.data;
+        const corners = [
+          code.location.topLeftCorner,
+          code.location.topRightCorner,
+          code.location.bottomLeftCorner,
+          code.location.bottomRightCorner,
+        ];
+        const xs = corners.map(c => c.x);
+        const ys = corners.map(c => c.y);
+        const minX = Math.min.apply(null, xs);
+        const minY = Math.min.apply(null, ys);
+        bbox = {
+          x: minX,
+          y: minY,
+          w: Math.max.apply(null, xs) - minX,
+          h: Math.max.apply(null, ys) - minY,
+        };
+      }
+    }
+
+    if (text) {
+      const cropped = cropQrRegion(canvas, bbox);
+      onQrDetected(text, cropped.toDataURL('image/png'));
+      return;
+    }
+    qrRafId = requestAnimationFrame(scanQrFrame);
+  }
+
+  function cropQrRegion(sourceCanvas, bbox) {
+    const W = sourceCanvas.width;
+    const H = sourceCanvas.height;
+    if (!bbox) return sourceCanvas;
+    const pad = Math.max(bbox.w, bbox.h) * 0.12;
+    const padded = {
+      x: bbox.x - pad,
+      y: bbox.y - pad,
+      w: bbox.w + 2 * pad,
+      h: bbox.h + 2 * pad,
+    };
+    const size = Math.max(padded.w, padded.h);
+    const cx = padded.x + padded.w / 2;
+    const cy = padded.y + padded.h / 2;
+    let sx = Math.round(cx - size / 2);
+    let sy = Math.round(cy - size / 2);
+    let s  = Math.round(size);
+    sx = Math.max(0, Math.min(W - 1, sx));
+    sy = Math.max(0, Math.min(H - 1, sy));
+    s  = Math.min(s, W - sx, H - sy);
+
+    const out = document.createElement('canvas');
+    out.width = s;
+    out.height = s;
+    const octx = out.getContext('2d');
+    octx.imageSmoothingEnabled = false;
+    octx.drawImage(sourceCanvas, sx, sy, s, s, 0, 0, s, s);
+    return out;
+  }
+
+  function stopQrScanner() {
+    if (qrRafId) { cancelAnimationFrame(qrRafId); qrRafId = null; }
+    if (qrStream) {
+      qrStream.getTracks().forEach(t => t.stop());
+      qrStream = null;
+    }
+    const video = document.getElementById('qrVideo');
+    if (video && video.srcObject) video.srcObject = null;
+  }
+
+  function onQrDetected(text, imageDataUrl) {
+    console.log('[demo] QR detected:', text);
+    stopQrScanner();
+
+    const textEl = document.getElementById('qrResultText');
+    const isUrl = /^https?:\/\//i.test(text);
+    if (isUrl) {
+      const a = document.createElement('a');
+      a.href = text;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = text;
+      textEl.innerHTML = '';
+      textEl.appendChild(a);
+    } else {
+      textEl.textContent = text;
+    }
+
+    const img = document.getElementById('qrResultImage');
+    img.src = imageDataUrl;
+    img.alt = text.slice(0, 80);
+
+    const dl = document.getElementById('qrDownload');
+    dl.href = imageDataUrl;
+    dl.download = `qr-${Date.now()}.png`;
+
+    showPage('qrResultPage');
+  }
+
+  window.addEventListener('pagehide', stopQrScanner);
 </script>
 
 </body>
